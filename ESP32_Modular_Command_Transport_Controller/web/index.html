@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ESP32 Controller Console</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header>
+    <div>
+      <span class="kicker">ESP32 bring-up and transport console</span>
+      <h1>Modular Controller</h1>
+      <p id="buildVersion">Waiting for controller state</p>
+    </div>
+    <div class="live"><span id="liveDot"></span><strong id="liveText">Connecting</strong></div>
+  </header>
+
+  <main>
+    <section class="panel console">
+      <div class="consoleHead">
+        <div>
+          <span class="kicker">Shared USB, Wi-Fi, BLE, and optional SPP command set</span>
+          <h2>Command console</h2>
+        </div>
+        <div class="bleControls">
+          <button id="connectBle">Connect BLE</button>
+          <button id="disconnectBle" disabled>Disconnect</button>
+        </div>
+      </div>
+
+      <div class="transportLine">
+        <span id="transportSummary">HTTP transport</span>
+        <span id="compiledSummary">Build flags pending</span>
+      </div>
+
+      <label class="fieldLabel" for="commandPreset">Command examples</label>
+      <select id="commandPreset">
+        <option value="">Choose a command or type below</option>
+      </select>
+
+      <label class="fieldLabel" for="commandInput">Command or batch</label>
+      <textarea id="commandInput" rows="2" spellcheck="false" placeholder="Status&#10;SendBLE:hello"></textarea>
+
+      <div class="consoleActions">
+        <button id="sendCommands" class="primary">Send</button>
+        <button id="stopAll" class="danger">STOP ALL</button>
+        <button id="clearLog">Clear output</button>
+      </div>
+
+
+      <pre id="log" aria-live="polite"></pre>
+    </section>
+
+    <details class="panel statusPanel">
+      <summary><span>Live status</span><small id="statusSummary">Waiting for state</small></summary>
+      <div id="statusGrid" class="statusGrid" aria-label="Controller status"></div>
+    </details>
+
+    <details class="panel">
+      <summary>Self-test</summary>
+      <p id="selfTestSummary">No self-test state yet.</p>
+      <div class="inlineCommands">
+        <button data-command="SelfTestStart" data-confirm="1">Start full sweep</button>
+        <button data-command="SelfTestStatus">Print status</button>
+        <button data-command="SelfTestAbort" data-confirm="1">Abort + restore</button>
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary>Firmware OTA</summary>
+      <div class="otaRow"><input id="otaFile" type="file" accept=".bin,application/octet-stream"><button id="otaUpload" class="primary">Upload</button></div>
+      <progress id="otaProgress" max="100" value="0"></progress>
+      <p id="otaMessage" class="hint">Uploads use Wi-Fi. A connected BLE console hands off automatically before the firmware stream starts.</p>
+    </details>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
