@@ -16,3 +16,6 @@ This is based on my prior work with the ESP32 but optimizes a ton, leaving about
 
 
 This was tested on a cheap ESP-WROOM-32 (WEMOS Lolin32 variant) without PSRAM which can significantly improve throughputs when sharing the radio between both protocols.
+
+
+License: MIT
