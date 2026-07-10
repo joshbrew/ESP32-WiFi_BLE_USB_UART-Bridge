@@ -1,10 +1,6 @@
 # ESP32 Modular Command + Transport Controller
 
-Firmware version: `2026-07-10-v5.16.0-base-controller`
-
 This is the transport-only bring-up firmware for a classic ESP32/LOLIN32-class board. It provides a shared command system over USB serial, Wi-Fi HTTP, BLE UART, optional Classic Bluetooth SPP, and optional auxiliary UART. It also includes a browser console, bounded event queues, radio-profile rollback, status indicators, a self-test framework, and validated HTTP OTA.
-
-The previous custom stepper and dual-DAC program has been removed from the compiled source tree. The shipped build instantiates the neutral `DeviceAddon`, so no actuator or sensor program owns GPIO pins beyond the two optional status indicators.
 
 ## Table of contents
 
