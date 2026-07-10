@@ -1,4 +1,4 @@
-# ESP32 controller command reference
+# ESP32 stepper + dual DAC command reference
 
 The same command grammar is available over USB serial, the Wi-Fi browser/HTTP command endpoint, BLE UART RX, optional Classic Bluetooth SPP, and optional auxiliary UART.
 
@@ -8,36 +8,36 @@ Commands are case-insensitive. Send one command per line for a batch.
 
 ```text
 USB serial: 115200 baud
-Wi-Fi AP: ESP32-Controller
-Wi-Fi password: esp32control
+Wi-Fi AP: ESP32-Stepper-WiFi
+Wi-Fi password: stepper32
 Portal: http://192.168.4.1/
-BLE name: ESP32-Controller-BLE
+BLE name: ESP32-StepperBLE
 ```
 
 BLE UUIDs:
 
 ```text
-Service:  6E400001-B5A3-F393-E0A9-E50E24DCCA9E
-RX/write: 6E400002-B5A3-F393-E0A9-E50E24DCCA9E
-TX/notify:6E400003-B5A3-F393-E0A9-E50E24DCCA9E
+Service:   6E400001-B5A3-F393-E0A9-E50E24DCCA9E
+RX/write:  6E400002-B5A3-F393-E0A9-E50E24DCCA9E
+TX/notify: 6E400003-B5A3-F393-E0A9-E50E24DCCA9E
 ```
 
-## Commands
-
-### Core
+## Core
 
 ```text
 Ping
 Help
 Status
 ConfigRead
+BootModeStatus
 USBStatus
 HeapStatus
+BLEStatus
 StopAll
 Reboot
 ```
 
-### Boot mode and self-test
+## Boot policy and self-test
 
 ```text
 ProductionMode
@@ -50,25 +50,163 @@ SelfTestAbort
 SelfTestClear
 ```
 
-### Status indicators
+## Status indicators
 
 ```text
 IndicatorStatus
 IndicatorTest
 IndicatorConnectionTest
 IndicatorActivityTest
-```
-
-Compatibility aliases:
-
-```text
 Indicator16Test
 Indicator17Test
 ```
 
-The aliases operate on the current configured pins, GPIO23 and GPIO5.
+Current indicator pins:
 
-### Explicit transport output
+```text
+Connection: GPIO23
+Activity: GPIO5
+```
+
+## Stepper moves
+
+Direction values:
+
+```text
+1 = CW
+2 = CCW
+```
+
+Move by step count:
+
+```text
+RPM:<rpm>,<steps>,<direction>
+```
+
+Move by angle:
+
+```text
+DEG:<rpm>,<degrees>,<direction>
+```
+
+Examples:
+
+```text
+RPM:10,2048,1
+DEG:10,360,2
+```
+
+Preset moves:
+
+```text
+MoveFullCW
+MoveFullCCW
+MoveHalfCW
+MoveHalfCCW
+TestFullSpeedRev
+TestHalfSpeedRev
+TestMinSpeedRev
+TestFullSpeedRevCCW
+TestHalfSpeedRevCCW
+TestMinSpeedRevCCW
+DebugSpinCW
+DebugSpinCCW
+RunStartupTest
+FastWiperTest
+```
+
+## Stepper control and tuning
+
+```text
+Setup
+GetMotorStats
+Stop
+CoilsOff
+SetRevSteps:<steps>
+SetMinRPM:<rpm>
+SetMaxRPM:<rpm>
+SetStartRPM:<rpm>
+SetRampRPM:<rpm-per-second>
+SetMinStepIntervalUs:<microseconds>
+StepMode:4
+StepMode:8
+HoldTorque:1
+HoldTorque:0
+PrintStepOrder
+NextStepOrder
+StepOrder:<four unique digits from 1 to 4>
+```
+
+Example wiring-order override:
+
+```text
+StepOrder:2143
+```
+
+Stop the motor before changing its tuning or step order.
+
+## DAC commands
+
+Status and reference calibration:
+
+```text
+DACStatus
+DACRefMV:<2500-to-3600>
+```
+
+Channel target:
+
+```text
+DAC1:MV:<millivolts>
+DAC2:MV:<millivolts>
+```
+
+Enable and release:
+
+```text
+DAC1:ON
+DAC1:OFF
+DAC2:ON
+DAC2:OFF
+DACAll:ON
+DACAll:OFF
+```
+
+Three-second 500 mV test:
+
+```text
+DAC1:TEST3S
+DAC2:TEST3S
+DACTest3S
+```
+
+Safety timeout:
+
+```text
+DAC1:TIMEOUTMS:<milliseconds>
+DAC2:TIMEOUTMS:<milliseconds>
+DAC1:TIMEOUTSEC:<seconds>
+DAC2:TIMEOUTSEC:<seconds>
+```
+
+A timeout of `0` means unlimited.
+
+Saved boot state:
+
+```text
+DAC1:BOOT:ON
+DAC1:BOOT:OFF
+DAC2:BOOT:ON
+DAC2:BOOT:OFF
+DACSave
+DACLoad
+DACDefaults
+DACErase
+```
+
+The native ESP32 DAC cannot directly produce 4 V.
+
+## Explicit transport output
 
 ```text
 Send:<payload>
@@ -83,7 +221,7 @@ SendStatus
 
 `Send:<payload>` forwards to every available output except the command source.
 
-### Radio profile selection
+## Radio profile selection
 
 ```text
 RadioStatus
@@ -103,7 +241,7 @@ RadioBoot:USB
 
 Profile changes use a saved trial, reboot, health check, and last-known-good rollback.
 
-### Radio enable flags
+## Radio enable flags
 
 ```text
 WiFi:ON
@@ -118,7 +256,7 @@ SPP:OFF
 
 These commands update the desired boot profile. Bluetooth profile changes are applied through the managed reboot path.
 
-### Wi-Fi configuration
+## Wi-Fi configuration
 
 ```text
 WiFiMode:AP
@@ -142,7 +280,7 @@ Supported explicit Wi-Fi TX power values:
 19.5, 19, 18.5, 17, 15, 13, 11, 8.5, 7, 5, 2, -1 dBm
 ```
 
-### Saved configuration
+## Saved radio configuration
 
 ```text
 ConfigApply
@@ -152,95 +290,73 @@ ConfigDefaults
 ConfigErase
 ```
 
-### Browser and BLE handoff
+## Browser and BLE handoff
 
 ```text
 BLEWebHandoff
 BLEWebCancel
 WebRestart
+BleAdvertise
 ```
 
 `BLEWebHandoff` is used by the browser when the active profile is `WIFI_BLE` or `WIFI_BLE_P`.
 
 ## Demo flows
 
-### USB sanity
+USB sanity:
 
 ```text
 Ping
 Status
 HeapStatus
-RadioStatus
+GetMotorStats
+DACStatus
 ```
 
-### LED sanity
+Stepper wiring check:
 
 ```text
-IndicatorConnectionTest
-IndicatorActivityTest
-IndicatorTest
+CoilsOff
+SetMaxRPM:10
+DEG:5,90,1
+DEG:5,90,2
+CoilsOff
 ```
 
-### Switch to combined Wi-Fi and BLE
+DAC channel 1 test:
 
 ```text
-ModeWiFiBLE
+DACRefMV:3300
+DAC1:MV:500
+DAC1:TEST3S
 ```
 
-After reboot, reconnect to the AP and connect Web Bluetooth to `ESP32-Controller-BLE`.
+Fail-safe DAC output:
 
-### Wi-Fi command to BLE output
+```text
+DAC1:MV:1200
+DAC1:TIMEOUTSEC:10
+DAC1:BOOT:OFF
+DACSave
+DAC1:ON
+```
+
+Wi-Fi command to BLE output:
 
 ```text
 SendBLE:hello from Wi-Fi
 ```
 
-### BLE command to browser output
+BLE command to browser output:
 
 ```text
 SendWiFi:hello from BLE
 ```
 
-### Configure station Wi-Fi
+Emergency release:
 
 ```text
-WiFiStaSSID:My Network
-WiFiStaPassword:correct horse battery staple
-WiFiMode:APSTA
-ConfigSave
-ConfigApply
-```
-
-### Restore defaults
-
-```text
-ConfigDefaults
-ConfigApply
-```
-
-To remove saved NVS radio configuration:
-
-```text
-ConfigErase
-Reboot
-```
-
-### Start full base self-test
-
-```text
-SelfTestStart
-```
-
-Check progress:
-
-```text
-SelfTestStatus
-```
-
-Abort and restore:
-
-```text
-SelfTestAbort
+StopAll
 ```
 
 ## OTA
@@ -255,4 +371,4 @@ OTA is driven from the browser console rather than a text command.
 5. Upload.
 ```
 
-The browser can begin from BLE, but the binary stream always transfers over Wi-Fi.
+The browser can begin from BLE, but the firmware binary always transfers over Wi-Fi.
