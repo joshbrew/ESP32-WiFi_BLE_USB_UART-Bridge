@@ -687,8 +687,6 @@ SelfTestClear
 IndicatorTest
 IndicatorConnectionTest
 IndicatorActivityTest
-Indicator16Test
-Indicator17Test
 ```
 
 The numbered aliases operate on the current GPIO23 and GPIO5 configuration.
