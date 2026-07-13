@@ -57,8 +57,6 @@ IndicatorStatus
 IndicatorTest
 IndicatorConnectionTest
 IndicatorActivityTest
-Indicator16Test
-Indicator17Test
 ```
 
 Current indicator pins:
