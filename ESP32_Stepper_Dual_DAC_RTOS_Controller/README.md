@@ -1,7 +1,5 @@
 # ESP32 Stepper + Dual DAC RTOS Controller
 
-Firmware version: `2026-07-10-v5.15.43-led-gpio23-5`
-
 This is the hardware-specific version of the ESP32 modular command and transport controller. It combines a nonblocking FreeRTOS stepper driver, two ESP32 hardware DAC outputs, USB serial, Wi-Fi HTTP, BLE UART, optional Classic Bluetooth SPP, optional auxiliary UART, a browser console, persistent configuration, radio-profile rollback, status indicators, self-test, and validated HTTP OTA.
 
 The stepper and DAC implementation is isolated under `src/addons/stepper_dac/`. The companion transport-only repository uses the same radio, web, OTA, command, and indicator framework without owning the motor or DAC pins.
