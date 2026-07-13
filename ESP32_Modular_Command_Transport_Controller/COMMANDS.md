@@ -59,15 +59,6 @@ IndicatorConnectionTest
 IndicatorActivityTest
 ```
 
-Compatibility aliases:
-
-```text
-Indicator16Test
-Indicator17Test
-```
-
-The aliases operate on the current configured pins, GPIO23 and GPIO5.
-
 ### Explicit transport output
 
 ```text
