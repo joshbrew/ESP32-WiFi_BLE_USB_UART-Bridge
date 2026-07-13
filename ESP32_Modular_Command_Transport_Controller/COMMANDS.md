@@ -2,7 +2,7 @@
 
 The same command grammar is available over USB serial, the Wi-Fi browser/HTTP command endpoint, BLE UART RX, optional Classic Bluetooth SPP, and optional auxiliary UART.
 
-Commands are case-insensitive. Send one command per line for a batch.
+Commands are not case-sensitive. Send one command per line for a batch.
 
 ## Default interfaces
 
