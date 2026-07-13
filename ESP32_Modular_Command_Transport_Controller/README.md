@@ -127,8 +127,6 @@ IndicatorConnectionTest
 IndicatorActivityTest
 ```
 
-Legacy aliases `Indicator16Test` and `Indicator17Test` remain accepted for compatibility, but they operate on the currently configured pins.
-
 ## Build and flash
 
 ### Arduino IDE
