@@ -6,13 +6,9 @@ This repo contains two Arduino projects. This is a full suite so you only need t
 
 Is just the transport layer containing all communication methods and the unified command interface.
 
-#### [ESP32_Stepper_Dual_DAC_RTOS_Controller](https://github.com/joshbrew/ESP32-WiFi_BLE_USB_UART-Bridge/tree/main/ESP32_Stepper_Dual_DAC_RTOS_Controller)
+#### [ESP32_Dispenser_Controller]([https://github.com/joshbrew/ESP32-WiFi_BLE_USB_UART-Bridge/tree/main/ESP32_Stepper_Dual_DAC_RTOS_Controller](https://github.com/joshbrew/ESP32-WiFi_BLE_USB_UART-Bridge/tree/main/ESP32_Dispenser_Controller))
 
-Contains an additional demo application with a generic 5V stepper (28BYJ-48 + ULN2003 5V) and 2 DAC pins. This demonstrates how to make modular addons.
-
-#### [ESP32_Stepper_GPIO_DAC_Controller](https://github.com/joshbrew/ESP32-WiFi_BLE_USB_UART-Bridge/tree/main/ESP32_Stepper_GPIO_DAC_Controller)
-
-This just swaps a DAC for a GPIO on/off button and a tweak in the browser client to match.
+Contains GPIO, DAC, and Stepper commands in a configurable suite.
 
 #### About
 
