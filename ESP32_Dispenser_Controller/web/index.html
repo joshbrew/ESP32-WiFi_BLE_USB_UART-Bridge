@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Drone Gel Dispenser</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header>
+    <div>
+      <span class="kicker">Aircraft payload controller</span>
+      <h1>Drone Gel Dispenser</h1>
+      <p id="buildVersion">Waiting for controller state</p>
+    </div>
+    <div class="live"><span id="liveDot"></span><strong id="liveText">Connecting</strong></div>
+  </header>
+
+  <main>
+    <section class="panel payloadPanel">
+      <div class="payloadHeading">
+        <div>
+          <span class="kicker">Primary flight hardware</span>
+          <h2>Dispenser control</h2>
+        </div>
+        <strong id="payloadState" class="stateBadge safe">DISARMED</strong>
+      </div>
+      <p id="payloadMeta" class="hint">Waiting for dispenser state. The output always boots inactive.</p>
+      <div class="payloadControls">
+        <button id="armDispenser" data-command="Arm" data-requires="dispenser" class="arm">Arm</button>
+        <button id="disarmDispenser" data-command="Disarm" data-requires="dispenser">Disarm</button>
+        <button data-command="Dispense:100" data-requires="armed" class="dispense">100 ms pulse</button>
+        <button data-command="Dispense:250" data-requires="armed" class="dispense">250 ms pulse</button>
+        <button data-command="Dispense:500" data-requires="armed" class="dispense">500 ms pulse</button>
+        <button id="stopDispense" data-command="DispenseStop" data-requires="dispenser" class="danger">Stop output</button>
+      </div>
+      <div class="customPulse">
+        <label for="pulseDuration">Custom pulse (ms)</label>
+        <input id="pulseDuration" type="number" min="1" max="2000" value="250" inputmode="numeric">
+        <button id="dispensePulse" class="primary">Dispense</button>
+      </div>
+      <p class="safetyNote">Arming never activates the output. Every dispense command has a hard time limit, and STOP ALL cancels the output and disarms the controller.</p>
+    </section>
+
+    <section class="panel routinePanel">
+      <div>
+        <span class="kicker">Saved nonblocking timing</span>
+        <h2>Dot-pattern routine</h2>
+      </div>
+      <p id="routineSummary" class="hint">Build a bounded pulse-and-wait routine, save it in controller memory, then arm before running.</p>
+      <div class="routineBuilder">
+        <label>Name<input id="routineName" maxlength="15" value="dots" spellcheck="false"></label>
+        <label>Pulse ms<input id="routinePulse" type="number" min="1" max="2000" value="200"></label>
+        <label>Gap ms<input id="routineGap" type="number" min="0" max="120000" value="800"></label>
+        <label>Repeats<input id="routineRepeats" type="number" min="1" max="20" value="6"></label>
+      </div>
+      <div class="inlineCommands">
+        <button id="saveRoutine">Build + save</button>
+        <button id="runRoutine" class="primary">Run saved routine</button>
+        <button id="stopRoutine" data-command="RoutineStop" class="danger">Stop routine</button>
+      </div>
+    </section>
+
+    <section class="panel console">
+      <div class="consoleHead">
+        <div>
+          <span class="kicker">USB, Wi-Fi, BLE, and SPP</span>
+          <h2>Advanced command console</h2>
+        </div>
+        <div class="bleControls">
+          <button id="connectBle">Connect BLE</button>
+          <button id="disconnectBle" disabled>Disconnect</button>
+        </div>
+      </div>
+
+      <div class="transportLine">
+        <span id="transportSummary">HTTP transport</span>
+        <span id="compiledSummary">Build flags pending</span>
+      </div>
+
+      <label class="fieldLabel" for="commandPreset">Command examples</label>
+      <select id="commandPreset">
+        <option value="">Choose a command or type below</option>
+      </select>
+
+      <label class="fieldLabel" for="commandInput">Command or batch</label>
+      <textarea id="commandInput" rows="2" spellcheck="false" placeholder="Status&#10;DispenserStatus"></textarea>
+
+      <div class="consoleActions">
+        <button id="sendCommands" class="primary">Send</button>
+        <button id="stopAll" class="danger">STOP ALL</button>
+        <button id="clearLog">Clear output</button>
+      </div>
+
+      <pre id="log" aria-live="polite"></pre>
+    </section>
+
+    <details class="panel statusPanel">
+      <summary><span>Live status</span><small id="statusSummary">Waiting for state</small></summary>
+      <div id="statusGrid" class="statusGrid" aria-label="Controller status"></div>
+    </details>
+
+    <details class="panel">
+      <summary>Self-test</summary>
+      <p id="selfTestSummary">No self-test state yet.</p>
+      <div class="inlineCommands">
+        <button data-command="SelfTestStart" data-confirm="1">Start full sweep</button>
+        <button data-command="SelfTestStatus">Print status</button>
+        <button data-command="SelfTestAbort" data-confirm="1">Abort + restore</button>
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary>Firmware OTA</summary>
+      <div class="otaRow"><input id="otaFile" type="file" accept=".bin,application/octet-stream"><button id="otaUpload" class="primary">Upload</button></div>
+      <progress id="otaProgress" max="100" value="0"></progress>
+      <p id="otaMessage" class="hint">Uploads use Wi-Fi. A connected BLE console hands off automatically before the firmware stream starts.</p>
+    </details>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

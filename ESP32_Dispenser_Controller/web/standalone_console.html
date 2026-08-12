@@ -1,0 +1,1028 @@
+<!-- GENERATED STANDALONE FILE. Not embedded or served by firmware. -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Drone Gel Dispenser</title>
+  <style>
+/* Mobile-first flight payload console. Kept dependency-free for ESP32 hosting. */
+:root {
+  color-scheme: dark;
+  --bg: #071117;
+  --panel: #0e1c24;
+  --panel-2: #122630;
+  --line: #29424f;
+  --text: #edf8f5;
+  --muted: #91aaa9;
+  --accent: #54d6c2;
+  --armed: #ffb34d;
+  --active: #70e77e;
+  --danger: #ff666d;
+  --radius: 14px;
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at 14% 0, #143744 0, transparent 32rem),
+    linear-gradient(180deg, #071117, #050b0f 70%);
+  color: var(--text);
+}
+header, main { width: min(980px, calc(100% - 22px)); margin: auto; }
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 20px 0 10px;
+}
+h1, h2, p { margin: 0; }
+h1 { font-size: clamp(1.7rem, 7vw, 2.7rem); letter-spacing: -.045em; }
+h2 { font-size: 1.12rem; }
+.kicker {
+  display: block;
+  color: var(--accent);
+  font-size: .68rem;
+  font-weight: 850;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  margin-bottom: 3px;
+}
+.panel {
+  background: #0e1c24ed;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin: 10px 0;
+  box-shadow: 0 12px 30px #0005;
+}
+.live, .consoleHead, .bleControls, .consoleActions, .transportLine,
+.otaRow, .inlineCommands, .payloadHeading, .payloadControls, .customPulse {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.live { white-space: nowrap; font-size: .86rem; }
+.live span {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 4px #ff666d1b;
+}
+.live span.on { background: var(--active); box-shadow: 0 0 0 4px #70e77e1b; }
+
+.payloadPanel { border-color: #33796f; background: linear-gradient(145deg, #10272a, #0d1921 72%); }
+.payloadHeading { justify-content: space-between; }
+.stateBadge {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 6px 11px;
+  font-size: .78rem;
+  letter-spacing: .07em;
+}
+.stateBadge.safe { color: #9db4b3; }
+.stateBadge.armed { color: var(--armed); background: #ffb34d13; }
+.stateBadge.active { color: var(--active); background: #70e77e13; box-shadow: 0 0 22px #70e77e26; }
+.stateBadge.fault { color: var(--danger); background: #ff666d13; }
+.payloadPanel .hint, .routinePanel .hint { margin-top: 8px; }
+.payloadControls { flex-wrap: wrap; margin-top: 12px; }
+.payloadControls button { flex: 1; min-width: 115px; }
+.customPulse {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #28413f;
+  flex-wrap: wrap;
+}
+.customPulse label { color: var(--muted); font-size: .8rem; font-weight: 700; }
+.customPulse input { width: 120px; }
+.safetyNote {
+  color: #bdd0cd;
+  background: #071417aa;
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-top: 10px;
+  font-size: .78rem;
+}
+
+.routineBuilder {
+  display: grid;
+  grid-template-columns: 1.2fr repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 11px;
+}
+.routineBuilder label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.console { margin-top: 10px; }
+.consoleHead { justify-content: space-between; }
+.bleControls, .consoleActions, .otaRow, .inlineCommands { flex-wrap: wrap; }
+.transportLine {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: .78rem;
+  margin: 8px 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #223943;
+}
+.fieldLabel {
+  display: block;
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  margin: 8px 0 4px;
+}
+button, input, select, textarea {
+  font: inherit;
+  color: var(--text);
+  background: #142832;
+  border: 1px solid #3a5b68;
+  border-radius: 9px;
+}
+button { padding: 8px 11px; font-weight: 780; cursor: pointer; }
+button:hover, input:focus, select:focus, textarea:focus { border-color: var(--accent); outline: none; }
+button:disabled, option:disabled { opacity: .38; cursor: not-allowed; }
+button.primary { background: #12665d; border-color: #31a894; }
+button.arm { background: #6a491a; border-color: var(--armed); }
+button.dispense { background: #17512f; border-color: #3c9b59; }
+button.danger { background: #7b252d; border-color: #c64953; }
+input { padding: 8px 9px; min-width: 0; }
+select, textarea { width: 100%; padding: 9px 10px; }
+textarea { min-height: 62px; resize: vertical; }
+.consoleActions, .inlineCommands { margin-top: 9px; }
+.consoleActions button:first-child { min-width: 92px; }
+pre {
+  min-height: 280px;
+  height: 42vh;
+  max-height: 600px;
+  overflow: auto;
+  margin: 10px 0 0;
+  padding: 11px;
+  border-radius: 10px;
+  background: #03090c;
+  border: 1px solid #1d333d;
+  color: #cde8e5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.5 ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+details summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  font-weight: 800;
+}
+details summary small { color: var(--muted); font-weight: 500; text-align: right; }
+details[open] summary { margin-bottom: 11px; }
+.statusGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 7px; }
+.status { background: #0a161c; border: 1px solid #243d47; border-radius: 10px; padding: 9px; }
+.status span { display: block; color: var(--muted); font-size: .66rem; text-transform: uppercase; letter-spacing: .07em; }
+.status strong { display: block; margin-top: 2px; font-size: .86rem; overflow-wrap: anywhere; }
+.hint { color: var(--muted); font-size: .82rem; }
+.otaRow { margin-top: 9px; }
+.otaRow input { max-width: 100%; flex: 1; }
+progress { width: 100%; height: 10px; margin-top: 9px; }
+code { color: var(--accent); }
+
+@media (max-width: 700px) {
+  .routineBuilder { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 620px) {
+  header { align-items: flex-start; padding-top: 15px; }
+  .live strong { display: none; }
+  .consoleHead { align-items: flex-start; }
+  .bleControls { justify-content: flex-end; }
+  .bleControls button { padding: 7px 8px; font-size: .78rem; }
+  .transportLine { display: grid; gap: 2px; }
+  .consoleActions { display: grid; grid-template-columns: 1fr 1fr; }
+  .consoleActions button:last-child { grid-column: 1 / -1; }
+  .statusGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  pre { height: 45vh; min-height: 260px; }
+  .panel { padding: 11px; }
+  details summary small { max-width: 58%; font-size: .72rem; }
+}
+@media (max-width: 430px) {
+  header p { font-size: .76rem; }
+  .kicker { font-size: .62rem; }
+  .bleControls { display: grid; }
+  .payloadControls { display: grid; grid-template-columns: 1fr 1fr; }
+  .payloadControls button { min-width: 0; }
+  .routineBuilder { grid-template-columns: 1fr 1fr; }
+  .consoleActions { grid-template-columns: 1fr; }
+  .consoleActions button:last-child { grid-column: auto; }
+}
+.standaloneToolbar {
+  width: min(1180px, calc(100% - 24px));
+  margin: 14px auto 0;
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) auto minmax(240px, 1fr);
+  align-items: end;
+  gap: 10px;
+}
+.standaloneToolbar label { display: grid; gap: 5px; color: var(--muted); font-size: .8rem; }
+.standaloneToolbar input { width: 100%; padding: 9px 10px; }
+.standaloneHint { color: var(--muted); font-size: .78rem; align-self: center; }
+@media (max-width: 760px) { .standaloneToolbar { grid-template-columns: 1fr; } }
+
+</style>
+</head>
+<body>
+  <section class="standaloneToolbar panel">
+    <label>Controller URL
+      <input id="standaloneDeviceUrl" type="url" value="http://192.168.4.1" spellcheck="false">
+    </label>
+    <button id="standaloneUseDevice" class="primary">Use controller URL</button>
+    <p id="standaloneDeviceStatus" class="standaloneHint">This standalone file is not served by the ESP32.</p>
+  </section>
+  <header>
+    <div>
+      <span class="kicker">Aircraft payload controller</span>
+      <h1>Drone Gel Dispenser</h1>
+      <p id="buildVersion">Waiting for controller state</p>
+    </div>
+    <div class="live"><span id="liveDot"></span><strong id="liveText">Connecting</strong></div>
+  </header>
+
+  <main>
+    <section class="panel payloadPanel">
+      <div class="payloadHeading">
+        <div>
+          <span class="kicker">Primary flight hardware</span>
+          <h2>Dispenser control</h2>
+        </div>
+        <strong id="payloadState" class="stateBadge safe">DISARMED</strong>
+      </div>
+      <p id="payloadMeta" class="hint">Waiting for dispenser state. The output always boots inactive.</p>
+      <div class="payloadControls">
+        <button id="armDispenser" data-command="Arm" data-requires="dispenser" class="arm">Arm</button>
+        <button id="disarmDispenser" data-command="Disarm" data-requires="dispenser">Disarm</button>
+        <button data-command="Dispense:100" data-requires="armed" class="dispense">100 ms pulse</button>
+        <button data-command="Dispense:250" data-requires="armed" class="dispense">250 ms pulse</button>
+        <button data-command="Dispense:500" data-requires="armed" class="dispense">500 ms pulse</button>
+        <button id="stopDispense" data-command="DispenseStop" data-requires="dispenser" class="danger">Stop output</button>
+      </div>
+      <div class="customPulse">
+        <label for="pulseDuration">Custom pulse (ms)</label>
+        <input id="pulseDuration" type="number" min="1" max="2000" value="250" inputmode="numeric">
+        <button id="dispensePulse" class="primary">Dispense</button>
+      </div>
+      <p class="safetyNote">Arming never activates the output. Every dispense command has a hard time limit, and STOP ALL cancels the output and disarms the controller.</p>
+    </section>
+
+    <section class="panel routinePanel">
+      <div>
+        <span class="kicker">Saved nonblocking timing</span>
+        <h2>Dot-pattern routine</h2>
+      </div>
+      <p id="routineSummary" class="hint">Build a bounded pulse-and-wait routine, save it in controller memory, then arm before running.</p>
+      <div class="routineBuilder">
+        <label>Name<input id="routineName" maxlength="15" value="dots" spellcheck="false"></label>
+        <label>Pulse ms<input id="routinePulse" type="number" min="1" max="2000" value="200"></label>
+        <label>Gap ms<input id="routineGap" type="number" min="0" max="120000" value="800"></label>
+        <label>Repeats<input id="routineRepeats" type="number" min="1" max="20" value="6"></label>
+      </div>
+      <div class="inlineCommands">
+        <button id="saveRoutine">Build + save</button>
+        <button id="runRoutine" class="primary">Run saved routine</button>
+        <button id="stopRoutine" data-command="RoutineStop" class="danger">Stop routine</button>
+      </div>
+    </section>
+
+    <section class="panel console">
+      <div class="consoleHead">
+        <div>
+          <span class="kicker">USB, Wi-Fi, BLE, and SPP</span>
+          <h2>Advanced command console</h2>
+        </div>
+        <div class="bleControls">
+          <button id="connectBle">Connect BLE</button>
+          <button id="disconnectBle" disabled>Disconnect</button>
+        </div>
+      </div>
+
+      <div class="transportLine">
+        <span id="transportSummary">HTTP transport</span>
+        <span id="compiledSummary">Build flags pending</span>
+      </div>
+
+      <label class="fieldLabel" for="commandPreset">Command examples</label>
+      <select id="commandPreset">
+        <option value="">Choose a command or type below</option>
+      </select>
+
+      <label class="fieldLabel" for="commandInput">Command or batch</label>
+      <textarea id="commandInput" rows="2" spellcheck="false" placeholder="Status&#10;DispenserStatus"></textarea>
+
+      <div class="consoleActions">
+        <button id="sendCommands" class="primary">Send</button>
+        <button id="stopAll" class="danger">STOP ALL</button>
+        <button id="clearLog">Clear output</button>
+      </div>
+
+      <pre id="log" aria-live="polite"></pre>
+    </section>
+
+    <details class="panel statusPanel">
+      <summary><span>Live status</span><small id="statusSummary">Waiting for state</small></summary>
+      <div id="statusGrid" class="statusGrid" aria-label="Controller status"></div>
+    </details>
+
+    <details class="panel">
+      <summary>Self-test</summary>
+      <p id="selfTestSummary">No self-test state yet.</p>
+      <div class="inlineCommands">
+        <button data-command="SelfTestStart" data-confirm="1">Start full sweep</button>
+        <button data-command="SelfTestStatus">Print status</button>
+        <button data-command="SelfTestAbort" data-confirm="1">Abort + restore</button>
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary>Firmware OTA</summary>
+      <div class="otaRow"><input id="otaFile" type="file" accept=".bin,application/octet-stream"><button id="otaUpload" class="primary">Upload</button></div>
+      <progress id="otaProgress" max="100" value="0"></progress>
+      <p id="otaMessage" class="hint">Uploads use Wi-Fi. A connected BLE console hands off automatically before the firmware stream starts.</p>
+    </details>
+  </main>
+
+  <script>
+(() => {
+  "use strict";
+  const key = "drone-gel-device-url";
+  const normalize = value => String(value || "").trim().replace(/\/+$/, "") || "http://192.168.4.1";
+  window.ESP32_API_BASE = normalize(localStorage.getItem(key));
+  const input = document.getElementById("standaloneDeviceUrl");
+  const button = document.getElementById("standaloneUseDevice");
+  const status = document.getElementById("standaloneDeviceStatus");
+  input.value = window.ESP32_API_BASE;
+  status.textContent = "Standalone console targeting " + window.ESP32_API_BASE;
+  button.addEventListener("click", () => {
+    localStorage.setItem(key, normalize(input.value));
+    window.location.reload();
+  });
+})();
+</script>
+  <script>
+/* Student-facing payload controls with an advanced shared command console. */
+"use strict";
+
+const BLE_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const BLE_RX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const BLE_TX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+const BLE_CHUNK = 20;
+const API_BASE = String(window.ESP32_API_BASE || "").replace(/\/+$/, "");
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+const elements = {};
+
+for (const id of [
+  "buildVersion", "liveDot", "liveText", "payloadState", "payloadMeta",
+  "armDispenser", "disarmDispenser", "pulseDuration", "dispensePulse",
+  "stopDispense", "routineName", "routinePulse", "routineGap",
+  "routineRepeats", "saveRoutine", "runRoutine", "stopRoutine",
+  "routineSummary", "connectBle", "disconnectBle", "transportSummary",
+  "compiledSummary", "commandPreset", "commandInput", "sendCommands",
+  "stopAll", "clearLog", "log", "statusSummary", "statusGrid",
+  "selfTestSummary", "otaFile", "otaUpload", "otaProgress", "otaMessage"
+]) {
+  elements[id] = document.getElementById(id);
+}
+
+const state = {
+  transport: "http",
+  latest: null,
+  cursor: null,
+  lastContact: 0,
+  busy: false,
+  otaActive: false,
+  bleDevice: null,
+  bleRx: null,
+  bleTx: null,
+  bleBuffer: "",
+  bleStatePending: false,
+  bleStateAt: 0,
+  httpQuietUntil: 0,
+  nextStateAt: 0,
+  retryAt: 0,
+  httpFailures: 0,
+  httpTail: Promise.resolve()
+};
+
+const ACTION_GROUPS = [
+  ["Dispenser", [
+    ["Arm", "Arm", "dispenser", true],
+    ["Disarm", "Disarm", "dispenser"],
+    ["Pulse 100 ms", "Dispense:100", "armed"],
+    ["Pulse 250 ms", "Dispense:250", "armed"],
+    ["Stop output", "DispenseStop", "dispenser"],
+    ["Dispenser status", "DispenserStatus", "dispenser"]
+  ]],
+  ["Payload profiles", [
+    ["List profiles", "PayloadProfileList", "dispenser"],
+    ["Show example profile", "PayloadProfileShow:profile1", "dispenser"],
+    ["Use example profile", "PayloadProfileUse:profile1", "dispenser", true],
+    ["Save current as profile1", "PayloadProfileSave:profile1", "dispenser", true]
+  ]],
+  ["Saved routines", [
+    ["List routines", "RoutineList"],
+    ["Routine status", "RoutineStatus"],
+    ["Run dots", "RoutineRun:dots", "armed", true],
+    ["Stop routine", "RoutineStop"]
+  ]],
+  ["Core", [
+    ["Ping", "Ping"], ["Status", "Status"], ["Read config", "ConfigRead"],
+    ["Help", "Help"], ["Indicators", "IndicatorTest"]
+  ]],
+  ["Send / bridge", [
+    ["Send", "Send:hello from controller"],
+    ["Send to BLE", "SendBLE:hello from Wi-Fi", "ble-output"],
+    ["Send Wi-Fi", "SendWiFi:hello from BLE", "wifi-output"],
+    ["Send USB", "SendSerial:hello from controller"], ["Send status", "SendStatus"]
+  ]],
+  ["Optional stepper / DAC", [
+    ["360 deg CW", "DEG:10,360,1", "stepper"],
+    ["360 deg CCW", "DEG:10,360,2", "stepper"],
+    ["Coils off", "CoilsOff", "stepper"], ["DAC status", "DACStatus", "dac"]
+  ]],
+  ["Radio profiles", [
+    ["Wi-Fi", "ModeWiFi", "wifi", true],
+    ["Wi-Fi + BLE", "ModeWiFiBLE", "wifi+ble", true],
+    ["Wi-Fi + BLE persistent", "ModeWiFiBLEP", "wifi+ble", true],
+    ["BLE only", "ModeBLE", "ble", true], ["USB only", "ModeUSB", null, true],
+    ["Radio status", "RadioStatus"]
+  ]],
+  ["Self-test", [
+    ["Start sweep", "SelfTestStart", null, true], ["Print status", "SelfTestStatus"],
+    ["Abort", "SelfTestAbort", null, true], ["Clear report", "SelfTestClear"]
+  ]],
+  ["Advanced", [
+    ["Debug boot policy", "DebugMode"], ["Production boot policy", "ProductionMode"],
+    ["Load saved radio config", "ConfigLoad"], ["Clear station network", "WiFiStaClear", "wifi", true]
+  ]]
+];
+
+function api(path) { return API_BASE + path; }
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+function now() { return new Date().toLocaleTimeString(); }
+function usingBle() { return state.transport === "ble" && state.bleRx && state.bleTx; }
+function setLive(ok, text) {
+  elements.liveDot.classList.toggle("on", ok);
+  elements.liveText.textContent = text;
+}
+function redact(line) {
+  return /^(WiFi(?:Ap|Sta)Password:)/i.test(line)
+    ? line.split(":", 1)[0] + ":<redacted>"
+    : line;
+}
+function appendLog(line) {
+  elements.log.textContent += line + "\n";
+  if (elements.log.textContent.length > 32000) {
+    elements.log.textContent = elements.log.textContent.slice(-24000);
+  }
+  elements.log.scrollTop = elements.log.scrollHeight;
+}
+function log(message, level = "info") {
+  appendLog(`[${now()}] ${level.toUpperCase()} ${message}`);
+}
+function rawLog(message) { appendLog(String(message)); }
+function rid() {
+  return `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+async function fetchTimed(url, options = {}, ms = 4200) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function readJson(response, label) {
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(`${label} HTTP ${response.status}${body ? `: ${body.slice(0, 100)}` : ""}`);
+  }
+  try {
+    return JSON.parse(body);
+  } catch (error) {
+    throw new Error(`${label} invalid JSON (${body.length} bytes)`);
+  }
+}
+
+function down(error) {
+  const message = error?.name === "AbortError" ? "HTTP timeout" : error?.message || String(error);
+  const wasLive = elements.liveDot.classList.contains("on");
+  setLive(false, message);
+  if (wasLive) log(message, "error");
+}
+
+async function pingHttp() {
+  const response = await fetchTimed(api("/api/ping"), { cache: "no-store" }, 2200);
+  await readJson(response, "Ping");
+  state.lastContact = Date.now();
+}
+
+function compiled(requirement) {
+  const radio = state.latest?.radio || {};
+  const send = state.latest?.send || {};
+  const addon = state.latest?.addon || {};
+  const dispenser = state.latest?.dispenser || {};
+  if (!requirement) return true;
+  if (requirement === "addon") return addon.active !== false;
+  if (requirement === "dispenser") return addon.dispenser === true;
+  if (requirement === "armed") return addon.dispenser === true && dispenser.armed && !dispenser.faulted;
+  if (requirement === "stepper") return addon.stepper === true || addon.name === "stepper-dac";
+  if (requirement === "dac") return addon.dac === true || addon.name === "stepper-dac";
+  if (requirement === "wifi") return radio.wifiCompiled !== false;
+  if (requirement === "wifi-output") return send.wifi === true;
+  if (requirement === "ble") return radio.bleCompiled !== false;
+  if (requirement === "ble-output") return send.ble === true;
+  if (requirement === "spp") return radio.sppCompiled !== false;
+  return radio.wifiCompiled !== false && radio.bleCompiled !== false;
+}
+
+function buildCommandMenu() {
+  for (const [group, items] of ACTION_GROUPS) {
+    const optgroup = document.createElement("optgroup");
+    optgroup.label = group;
+    for (const [label, command, requires, confirm] of items) {
+      const option = document.createElement("option");
+      option.value = command;
+      option.textContent = `${label} — ${command}`;
+      if (requires) option.dataset.requires = requires;
+      if (confirm) option.dataset.confirm = "1";
+      optgroup.append(option);
+    }
+    elements.commandPreset.append(optgroup);
+  }
+}
+
+function updateActions() {
+  const addon = state.latest?.addon || {};
+  const dispenser = state.latest?.dispenser || {};
+  const routine = state.latest?.routine || {};
+  for (const item of document.querySelectorAll("[data-command], option[data-requires]")) {
+    const command = item.dataset.command || item.value || "";
+    let disabled = state.busy || !compiled(item.dataset.requires);
+    if (/^Arm$/i.test(command) && dispenser.armed && !dispenser.faulted) disabled = true;
+    if (/^Disarm$/i.test(command) && !dispenser.armed && !dispenser.faulted && !dispenser.dispensing) disabled = true;
+    if (/^Dispense:/i.test(command) && (!dispenser.armed || dispenser.faulted || dispenser.dispensing)) disabled = true;
+    if (routine.active && (/^(?:Arm|DispenserArm)$/i.test(command) || /^Dispense:/i.test(command))) disabled = true;
+    if (/^PayloadProfile(?:Save|Use|Delete):/i.test(command) && (dispenser.armed || dispenser.dispensing || routine.active)) disabled = true;
+    if (/^DispenseStop$/i.test(command) && !dispenser.dispensing) disabled = true;
+    if (/^RoutineStop$/i.test(command) && !routine.active) disabled = true;
+    item.disabled = disabled;
+  }
+  elements.dispensePulse.disabled = state.busy || !dispenser.armed || dispenser.faulted || dispenser.dispensing || routine.active;
+  elements.saveRoutine.disabled = state.busy || routine.active || addon.dispenser !== true;
+  elements.runRoutine.disabled = state.busy || addon.dispenser !== true || !dispenser.armed || dispenser.faulted || routine.active;
+  if (elements.commandPreset.selectedOptions[0]?.disabled) elements.commandPreset.selectedIndex = 0;
+}
+
+function renderTransport() {
+  const ble = usingBle();
+  elements.transportSummary.textContent = ble ? "BLE transport" : "Wi-Fi transport";
+  elements.connectBle.disabled = state.busy || ble || !navigator.bluetooth || state.latest?.radio?.bleCompiled === false;
+  elements.disconnectBle.disabled = state.busy || !ble;
+  elements.otaUpload.disabled = state.busy || state.otaActive;
+  elements.sendCommands.disabled = state.busy;
+  updateActions();
+}
+
+function card(label, value) {
+  return `<div class="status"><span>${label}</span><strong>${value}</strong></div>`;
+}
+
+function renderState(data) {
+  state.latest = data;
+  state.lastContact = Date.now();
+  if (state.cursor === null) state.cursor = Number(data.latestEventId) || 0;
+
+  const radio = data.radio || {};
+  const send = data.send || {};
+  const addon = data.addon || {};
+  const dispenser = data.dispenser || {};
+  const routine = data.routine || {};
+  const motor = data.motor || {};
+  const channels = data.dac?.channels || [];
+  const queue = data.queue || {};
+  const test = data.selfTest || {};
+  const wifi = radio.wifiCompiled === false ? "not compiled" : `${radio.wifiState || "off"} ${radio.ip || ""}`.trim();
+  const ble = radio.bleCompiled === false ? "not compiled" : send.ble ? "connected + TX" : send.bleConnected ? "connected, notifications off" : radio.bleRunning ? "advertising" : "off";
+  const profile = radio.bootModeActive || data.bootMode || "?";
+
+  let payload = "NOT COMPILED";
+  if (addon.dispenser) {
+    payload = dispenser.faulted ? "FAULT" : dispenser.dispensing ? "DISPENSING" : dispenser.armed ? "ARMED" : "DISARMED";
+  }
+  elements.payloadState.textContent = payload;
+  elements.payloadState.className = `stateBadge ${dispenser.faulted ? "fault" : dispenser.dispensing ? "active" : dispenser.armed ? "armed" : "safe"}`;
+  elements.payloadMeta.textContent = addon.dispenser
+    ? `GPIO${dispenser.pin} · output ${dispenser.dispensing ? "ACTIVE" : "inactive"} · pulse ${dispenser.remainingMs || 0} ms remaining · arm ${dispenser.armRemainingMs || 0} ms remaining${dispenser.interlockConfigured ? ` · interlock ${dispenser.interlockOpen ? "open" : "CLOSED"}` : ""}`
+    : "This build uses the optional advanced stepper/DAC hardware profile.";
+  const maxPulseMs = dispenser.maxPulseMs || 2000;
+  elements.pulseDuration.max = String(maxPulseMs);
+  elements.routinePulse.max = String(maxPulseMs);
+  elements.routineSummary.textContent = routine.active
+    ? `Running ${routine.name}: step ${routine.step}/${routine.steps}, repeat ${routine.repeat}/${routine.repeats}`
+    : `${routine.stored || 0}/${routine.capacity || 0} routine slots used. Arm the dispenser before running.`;
+
+  const cards = [
+    card("Payload", payload),
+    card("Payload profile", dispenser.profile || "compiled"),
+    card("Routine", routine.active ? `${routine.name} ${routine.step}/${routine.steps}` : "idle"),
+    card("Boot", profile), card("Wi-Fi", wifi), card("BLE", ble),
+    card("Queue", `${queue.waiting ?? 0}/${queue.capacity ?? 0}`),
+    card("Heap", `${data.freeHeap ?? 0} B free — ${data.largestHeapBlock ?? 0} B largest`),
+    card("Self-test", test.active ? `${test.current || 0}/${test.total || 0}` : test.phase || "idle")
+  ];
+  if (addon.stepper || addon.name === "stepper-dac") {
+    cards.push(card("Motor", motor.moving ? `${motor.currentRpm} RPM, ${motor.remainingSteps} steps` : motor.testActive ? "test active" : "idle"));
+  }
+  if (addon.dac || addon.name === "stepper-dac") {
+    const channel = channels[0] || {};
+    cards.push(card("DAC 1", channel.enabled ? `${channel.outputMv || 0} mV` : "off"));
+  }
+  elements.statusGrid.innerHTML = cards.join("");
+  elements.statusSummary.textContent = `${payload} — ${profile} — Wi-Fi ${wifi} — BLE ${ble}`;
+  elements.buildVersion.textContent = `${data.firmware || "ESP32 controller"} — ${data.version || "build"}`;
+  elements.compiledSummary.textContent = `Profile: ${addon.name || "none"}; Wi-Fi ${radio.wifiCompiled === false ? "off" : "on"}, BLE ${radio.bleCompiled === false ? "off" : "on"}`;
+  elements.selfTestSummary.textContent = `${test.phase || "Idle"}: ${test.current || 0}/${test.total || 0}, pass ${test.pass || 0}, fail ${test.fail || 0}, skip ${test.skip || 0}, boots ${test.boots || 0}. ${test.lastResult || "No run recorded."}`;
+  setLive(true, usingBle() ? "BLE connected" : "HTTP connected");
+  renderTransport();
+}
+
+async function postHttpNow(body, id, fast) {
+  const clean = String(body || "").replace(/\r/g, "").trim();
+  if (!clean) throw new Error("Empty command");
+  let last;
+  const timeout = fast ? 2200 : 6500;
+  const delays = fast ? [0] : [0, 180, 500];
+  state.httpQuietUntil = Date.now() + timeout + 300;
+  for (const delay of delays) {
+    if (delay) await sleep(delay);
+    try {
+      const response = await fetchTimed(api("/api/command"), {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream", "Accept": "application/json", "X-Request-ID": id },
+        body: clean,
+        keepalive: fast
+      }, timeout);
+      const payload = await readJson(response, "Command");
+      state.lastContact = Date.now();
+      if (payload.accepted) {
+        state.cursor = Math.max(state.cursor ?? 0, Number(payload.latestEventId) || 0);
+        state.httpQuietUntil = Date.now() + 100;
+        setLive(true, "HTTP connected");
+        return payload;
+      }
+      last = new Error(payload.error || `Command HTTP ${response.status}`);
+      if (!(response.status === 429 || response.status === 503 || payload.retryable)) break;
+    } catch (error) {
+      last = error;
+    }
+  }
+  state.httpQuietUntil = Date.now() + 100;
+  throw last || new Error("Command failed");
+}
+
+function postHttp(body, id = rid(), fast = false) {
+  const run = () => postHttpNow(body, id, fast);
+  const pending = state.httpTail.then(run, run);
+  state.httpTail = pending.catch(() => {});
+  return pending;
+}
+
+async function writeBle(text) {
+  if (!usingBle()) throw new Error("BLE disconnected");
+  const bytes = enc.encode(text);
+  for (let index = 0; index < bytes.length; index += BLE_CHUNK) {
+    const chunk = bytes.slice(index, index + BLE_CHUNK);
+    if (state.bleRx.writeValueWithoutResponse) await state.bleRx.writeValueWithoutResponse(chunk);
+    else await state.bleRx.writeValue(chunk);
+    await sleep(14);
+  }
+}
+
+async function runCommand(body, fast = false) {
+  const clean = String(body || "").trim();
+  if (!clean) throw new Error("Empty command");
+  log(`TX ${usingBle() ? "BLE" : "HTTP"} ${clean.split("\n").map(redact).join(" | ")}`, "send");
+  if (usingBle()) {
+    await writeBle(clean + "\n");
+    return;
+  }
+  const result = await postHttp(clean, rid(), fast);
+  log(`HTTP accepted ${result.acceptedLines || 1} line${result.acceptedLines === 1 ? "" : "s"}`, "status");
+  return result;
+}
+
+function handleBleLine(line) {
+  if (!line) return;
+  state.lastContact = Date.now();
+  if (line.startsWith("@STATE ")) {
+    state.bleStatePending = false;
+    state.bleStateAt = 0;
+    try { renderState(JSON.parse(line.slice(7))); }
+    catch (error) { log(`BLE state parse: ${error.message}`, "error"); }
+    return;
+  }
+  const match = line.match(/^\[(\d+)\]\[([^\]]+)\]\[([^\]]+)\](?:\[([^\]]+)\])?\s*(.*)$/);
+  if (match) {
+    state.cursor = Math.max(state.cursor ?? 0, Number(match[1]) || 0);
+    log(`${match[3]}${match[4] ? ` #${match[4]}` : ""}: ${match[5]}`, match[2].toLowerCase());
+    return;
+  }
+  line.startsWith("@ERROR") ? log(line, "error") : rawLog(line);
+}
+
+function handleBleData(event) {
+  state.bleBuffer += dec.decode(event.target.value, { stream: true });
+  let at;
+  while ((at = state.bleBuffer.indexOf("\n")) >= 0) {
+    handleBleLine(state.bleBuffer.slice(0, at).replace(/\r$/, "").trim());
+    state.bleBuffer = state.bleBuffer.slice(at + 1);
+  }
+}
+
+function bleDisconnected() {
+  const wasBle = state.transport === "ble" || state.bleRx || state.bleTx;
+  state.transport = "http";
+  state.bleRx = null;
+  state.bleTx = null;
+  state.bleBuffer = "";
+  state.nextStateAt = 0;
+  setLive(false, "BLE disconnected");
+  renderTransport();
+  if (wasBle) log("BLE disconnected; Wi-Fi resumed", "warning");
+}
+
+async function connectBle() {
+  if (!navigator.bluetooth) throw new Error("Web Bluetooth is unavailable");
+  const armHandoff = Date.now() - state.lastContact < 7000
+    ? postHttp("BLEWebHandoff", "ble-arm-" + Date.now()).catch(() => {})
+    : Promise.resolve();
+  const devicePromise = navigator.bluetooth.requestDevice({
+    filters: [{ services: [BLE_SERVICE_UUID] }], optionalServices: [BLE_SERVICE_UUID]
+  });
+  const [, device] = await Promise.all([armHandoff, devicePromise]);
+  device.addEventListener("gattserverdisconnected", bleDisconnected);
+  const server = await device.gatt.connect();
+  const service = await server.getPrimaryService(BLE_SERVICE_UUID);
+  state.bleRx = await service.getCharacteristic(BLE_RX_UUID);
+  state.bleTx = await service.getCharacteristic(BLE_TX_UUID);
+  await state.bleTx.startNotifications();
+  state.bleTx.addEventListener("characteristicvaluechanged", handleBleData);
+  state.bleDevice = device;
+  state.transport = "ble";
+  state.bleBuffer = "";
+  renderTransport();
+  setLive(true, "BLE connected");
+  log(`BLE connected to ${device.name || "ESP32"}`, "status");
+  await writeBle("@STATE\n");
+}
+
+function disconnectBle() {
+  if (state.bleDevice?.gatt?.connected) state.bleDevice.gatt.disconnect();
+  else bleDisconnected();
+}
+
+function coexHttpMode() {
+  const mode = state.latest?.radio?.bootModeActive;
+  return mode === "WIFI_BLE" || mode === "WIFI_BLE_P";
+}
+
+function showEvent(event) {
+  const text = event.t || "";
+  if (event.q) { rawLog(text); return; }
+  const source = event.s || "Internal";
+  log(`${source}${event.r ? ` #${event.r}` : ""}: ${text}`, String(event.l || "info").toLowerCase());
+}
+
+async function pollHttpOnce() {
+  const time = Date.now();
+  if (state.busy || state.otaActive || time < state.httpQuietUntil) return 100;
+  if (time < state.retryAt) return Math.min(350, state.retryAt - time);
+  const getState = !state.latest || time >= state.nextStateAt;
+  try {
+    if (getState) {
+      const response = await fetchTimed(api("/api/state"), { cache: "no-store" }, coexHttpMode() ? 4800 : 3200);
+      renderState(await readJson(response, "State"));
+      state.nextStateAt = Date.now() + 1000;
+    } else {
+      const response = await fetchTimed(api(`/api/events?since=${state.cursor ?? 0}&limit=4`), { cache: "no-store" }, coexHttpMode() ? 4200 : 2800);
+      const payload = await readJson(response, "Events");
+      state.lastContact = Date.now();
+      if (payload.gap) log("Event history wrapped", "warning");
+      for (const event of payload.events || []) showEvent(event);
+      state.cursor = Math.max(state.cursor ?? 0, Number(payload.cursor) || 0);
+      setLive(true, "HTTP connected");
+      state.httpFailures = 0;
+      state.retryAt = 0;
+      return payload.more ? 120 : 400;
+    }
+    state.httpFailures = 0;
+    state.retryAt = 0;
+    return 300;
+  } catch (error) {
+    state.httpFailures++;
+    if (state.httpFailures < 2) return 250;
+    try {
+      await pingHttp();
+      setLive(true, "HTTP connected — API retrying");
+      state.retryAt = Date.now() + (state.httpFailures < 4 ? 700 : 2200);
+      return 300;
+    } catch (pingError) {
+      down(pingError);
+      state.retryAt = Date.now() + 3000;
+      return 1000;
+    }
+  }
+}
+
+async function pollLoop() {
+  if (state.otaActive) { setTimeout(pollLoop, 250); return; }
+  if (usingBle()) {
+    if (state.bleStatePending && Date.now() - state.bleStateAt > 4000) state.bleStatePending = false;
+    if (!state.bleStatePending) {
+      state.bleStatePending = true;
+      state.bleStateAt = Date.now();
+      writeBle("@STATE\n").catch(error => {
+        state.bleStatePending = false;
+        state.bleStateAt = 0;
+        log(error.message, "error");
+      });
+    }
+    setTimeout(pollLoop, 700);
+    return;
+  }
+  setTimeout(pollLoop, await pollHttpOnce());
+}
+
+async function withLock(work) {
+  if (state.busy) return;
+  state.busy = true;
+  renderTransport();
+  try { await work(); }
+  catch (error) { log(error.message || String(error), "error"); }
+  finally { state.busy = false; renderTransport(); }
+}
+
+async function prepareHttpForOta() {
+  if (!usingBle()) return;
+  elements.otaMessage.textContent = "Stopping outputs and handing OTA from BLE to Wi-Fi...";
+  await writeBle("StopAll\n");
+  await sleep(180);
+  disconnectBle();
+  let last;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try { await pingHttp(); log("OTA handed to Wi-Fi", "status"); return; }
+    catch (error) { last = error; await sleep(500); }
+  }
+  throw new Error(`Wi-Fi OTA endpoint unavailable${last?.message ? `: ${last.message}` : ""}`);
+}
+
+async function uploadFirmware() {
+  const file = elements.otaFile.files?.[0];
+  if (!file) throw new Error("Choose an application .bin first");
+  if (!file.name.toLowerCase().endsWith(".bin")) throw new Error("Choose an ESP32 application .bin file");
+  if (file.size < 1024) throw new Error("Firmware image is too small");
+  const magic = new Uint8Array(await file.slice(0, 1).arrayBuffer())[0];
+  if (magic !== 0xe9) throw new Error("Selected file is not an ESP32 application image");
+  state.otaActive = true;
+  renderTransport();
+  elements.otaProgress.value = 0;
+  try {
+    await prepareHttpForOta();
+    elements.otaMessage.textContent = "Uploading over Wi-Fi...";
+    const form = new FormData();
+    form.append("firmware", file, file.name);
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", api("/api/ota"));
+      xhr.timeout = 180000;
+      xhr.setRequestHeader("X-Request-ID", rid());
+      xhr.setRequestHeader("X-Firmware-Size", String(file.size));
+      xhr.upload.onprogress = event => {
+        if (!event.lengthComputable) return;
+        const progress = Math.min(99, Math.round(event.loaded / event.total * 100));
+        elements.otaProgress.value = progress;
+        elements.otaMessage.textContent = `Uploading ${progress}%`;
+      };
+      xhr.onerror = () => reject(new Error("OTA upload connection failed"));
+      xhr.ontimeout = () => reject(new Error("OTA upload timed out"));
+      xhr.onload = () => {
+        let payload = {};
+        try { payload = JSON.parse(xhr.responseText || "{}"); } catch (error) {}
+        if (xhr.status >= 200 && xhr.status < 300 && payload.ok) resolve(payload);
+        else reject(new Error(payload.error || `OTA HTTP ${xhr.status}`));
+      };
+      xhr.send(form);
+    });
+    elements.otaProgress.value = 100;
+    elements.otaMessage.textContent = "Image validated. Controller is rebooting.";
+    state.httpQuietUntil = Date.now() + 10000;
+  } finally {
+    state.otaActive = false;
+    renderTransport();
+  }
+}
+
+function selectedOption() {
+  const option = elements.commandPreset.selectedOptions[0];
+  return option && option.value === elements.commandInput.value.trim() ? option : null;
+}
+function sendInput() {
+  const option = selectedOption();
+  const command = elements.commandInput.value;
+  if (option?.dataset.confirm && !window.confirm(`Send ${command}?\n\nUSB serial remains the recovery path.`)) return;
+  withLock(() => runCommand(command));
+}
+function readInteger(element, low, high, label) {
+  const value = Number(element.value);
+  if (!Number.isInteger(value) || value < low || value > high) {
+    throw new Error(`${label} must be ${low} to ${high}`);
+  }
+  return value;
+}
+function routineName() {
+  const name = elements.routineName.value.trim();
+  if (!/^[A-Za-z0-9_-]{1,15}$/.test(name)) throw new Error("Routine name must use 1-15 letters, digits, '-' or '_'");
+  return name;
+}
+async function saveRoutinePreset() {
+  const name = routineName();
+  const maxPulse = Number(state.latest?.dispenser?.maxPulseMs) || 2000;
+  const pulse = readInteger(elements.routinePulse, 1, maxPulse, "Pulse");
+  const gap = readInteger(elements.routineGap, 0, 120000, "Gap");
+  const repeats = readInteger(elements.routineRepeats, 1, 20, "Repeats");
+  await runCommand([
+    `RoutineCreate:${name}`,
+    `RoutineAdd:${name}:DISPENSE:${pulse}`,
+    `RoutineAdd:${name}:WAIT_IDLE`,
+    `RoutineAdd:${name}:WAIT:${gap}`,
+    `RoutineRepeat:${name}:${repeats}`,
+    `RoutineSave:${name}`
+  ].join("\n"));
+}
+async function runNamedRoutine() {
+  await runCommand(`RoutineRun:${routineName()}`);
+}
+async function customDispense() {
+  const max = Number(state.latest?.dispenser?.maxPulseMs) || 2000;
+  const duration = readInteger(elements.pulseDuration, 1, max, "Pulse");
+  await runCommand(`Dispense:${duration}`, true);
+}
+
+document.addEventListener("click", event => {
+  const button = event.target.closest("button[data-command]");
+  if (!button) return;
+  const command = button.dataset.command;
+  if (button.dataset.confirm && !window.confirm(`Send ${command}?`)) return;
+  withLock(() => runCommand(command));
+});
+elements.commandPreset.addEventListener("change", () => {
+  const option = elements.commandPreset.selectedOptions[0];
+  if (option?.value) { elements.commandInput.value = option.value; elements.commandInput.focus(); }
+});
+elements.commandInput.addEventListener("input", () => {
+  if (elements.commandPreset.value !== elements.commandInput.value.trim()) elements.commandPreset.selectedIndex = 0;
+});
+elements.commandInput.addEventListener("keydown", event => {
+  if (event.ctrlKey && event.key === "Enter") { event.preventDefault(); sendInput(); }
+});
+elements.sendCommands.addEventListener("click", sendInput);
+elements.stopAll.addEventListener("click", () => runCommand("StopAll").catch(error => log(error.message, "error")));
+elements.dispensePulse.addEventListener("click", () => withLock(customDispense));
+elements.saveRoutine.addEventListener("click", () => withLock(saveRoutinePreset));
+elements.runRoutine.addEventListener("click", () => withLock(runNamedRoutine));
+elements.connectBle.addEventListener("click", () => withLock(connectBle));
+elements.disconnectBle.addEventListener("click", disconnectBle);
+elements.clearLog.addEventListener("click", () => { elements.log.textContent = ""; });
+elements.otaUpload.addEventListener("click", () => withLock(uploadFirmware));
+
+buildCommandMenu();
+renderTransport();
+log("Controller console ready", "status");
+pollLoop();
+</script>
+</body>
+</html>

@@ -1,0 +1,221 @@
+/* Mobile-first flight payload console. Kept dependency-free for ESP32 hosting. */
+:root {
+  color-scheme: dark;
+  --bg: #071117;
+  --panel: #0e1c24;
+  --panel-2: #122630;
+  --line: #29424f;
+  --text: #edf8f5;
+  --muted: #91aaa9;
+  --accent: #54d6c2;
+  --armed: #ffb34d;
+  --active: #70e77e;
+  --danger: #ff666d;
+  --radius: 14px;
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at 14% 0, #143744 0, transparent 32rem),
+    linear-gradient(180deg, #071117, #050b0f 70%);
+  color: var(--text);
+}
+header, main { width: min(980px, calc(100% - 22px)); margin: auto; }
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 20px 0 10px;
+}
+h1, h2, p { margin: 0; }
+h1 { font-size: clamp(1.7rem, 7vw, 2.7rem); letter-spacing: -.045em; }
+h2 { font-size: 1.12rem; }
+.kicker {
+  display: block;
+  color: var(--accent);
+  font-size: .68rem;
+  font-weight: 850;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  margin-bottom: 3px;
+}
+.panel {
+  background: #0e1c24ed;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin: 10px 0;
+  box-shadow: 0 12px 30px #0005;
+}
+.live, .consoleHead, .bleControls, .consoleActions, .transportLine,
+.otaRow, .inlineCommands, .payloadHeading, .payloadControls, .customPulse {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.live { white-space: nowrap; font-size: .86rem; }
+.live span {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 4px #ff666d1b;
+}
+.live span.on { background: var(--active); box-shadow: 0 0 0 4px #70e77e1b; }
+
+.payloadPanel { border-color: #33796f; background: linear-gradient(145deg, #10272a, #0d1921 72%); }
+.payloadHeading { justify-content: space-between; }
+.stateBadge {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 6px 11px;
+  font-size: .78rem;
+  letter-spacing: .07em;
+}
+.stateBadge.safe { color: #9db4b3; }
+.stateBadge.armed { color: var(--armed); background: #ffb34d13; }
+.stateBadge.active { color: var(--active); background: #70e77e13; box-shadow: 0 0 22px #70e77e26; }
+.stateBadge.fault { color: var(--danger); background: #ff666d13; }
+.payloadPanel .hint, .routinePanel .hint { margin-top: 8px; }
+.payloadControls { flex-wrap: wrap; margin-top: 12px; }
+.payloadControls button { flex: 1; min-width: 115px; }
+.customPulse {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #28413f;
+  flex-wrap: wrap;
+}
+.customPulse label { color: var(--muted); font-size: .8rem; font-weight: 700; }
+.customPulse input { width: 120px; }
+.safetyNote {
+  color: #bdd0cd;
+  background: #071417aa;
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-top: 10px;
+  font-size: .78rem;
+}
+
+.routineBuilder {
+  display: grid;
+  grid-template-columns: 1.2fr repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 11px;
+}
+.routineBuilder label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.console { margin-top: 10px; }
+.consoleHead { justify-content: space-between; }
+.bleControls, .consoleActions, .otaRow, .inlineCommands { flex-wrap: wrap; }
+.transportLine {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: .78rem;
+  margin: 8px 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #223943;
+}
+.fieldLabel {
+  display: block;
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  margin: 8px 0 4px;
+}
+button, input, select, textarea {
+  font: inherit;
+  color: var(--text);
+  background: #142832;
+  border: 1px solid #3a5b68;
+  border-radius: 9px;
+}
+button { padding: 8px 11px; font-weight: 780; cursor: pointer; }
+button:hover, input:focus, select:focus, textarea:focus { border-color: var(--accent); outline: none; }
+button:disabled, option:disabled { opacity: .38; cursor: not-allowed; }
+button.primary { background: #12665d; border-color: #31a894; }
+button.arm { background: #6a491a; border-color: var(--armed); }
+button.dispense { background: #17512f; border-color: #3c9b59; }
+button.danger { background: #7b252d; border-color: #c64953; }
+input { padding: 8px 9px; min-width: 0; }
+select, textarea { width: 100%; padding: 9px 10px; }
+textarea { min-height: 62px; resize: vertical; }
+.consoleActions, .inlineCommands { margin-top: 9px; }
+.consoleActions button:first-child { min-width: 92px; }
+pre {
+  min-height: 280px;
+  height: 42vh;
+  max-height: 600px;
+  overflow: auto;
+  margin: 10px 0 0;
+  padding: 11px;
+  border-radius: 10px;
+  background: #03090c;
+  border: 1px solid #1d333d;
+  color: #cde8e5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.5 ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+details summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  font-weight: 800;
+}
+details summary small { color: var(--muted); font-weight: 500; text-align: right; }
+details[open] summary { margin-bottom: 11px; }
+.statusGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 7px; }
+.status { background: #0a161c; border: 1px solid #243d47; border-radius: 10px; padding: 9px; }
+.status span { display: block; color: var(--muted); font-size: .66rem; text-transform: uppercase; letter-spacing: .07em; }
+.status strong { display: block; margin-top: 2px; font-size: .86rem; overflow-wrap: anywhere; }
+.hint { color: var(--muted); font-size: .82rem; }
+.otaRow { margin-top: 9px; }
+.otaRow input { max-width: 100%; flex: 1; }
+progress { width: 100%; height: 10px; margin-top: 9px; }
+code { color: var(--accent); }
+
+@media (max-width: 700px) {
+  .routineBuilder { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 620px) {
+  header { align-items: flex-start; padding-top: 15px; }
+  .live strong { display: none; }
+  .consoleHead { align-items: flex-start; }
+  .bleControls { justify-content: flex-end; }
+  .bleControls button { padding: 7px 8px; font-size: .78rem; }
+  .transportLine { display: grid; gap: 2px; }
+  .consoleActions { display: grid; grid-template-columns: 1fr 1fr; }
+  .consoleActions button:last-child { grid-column: 1 / -1; }
+  .statusGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  pre { height: 45vh; min-height: 260px; }
+  .panel { padding: 11px; }
+  details summary small { max-width: 58%; font-size: .72rem; }
+}
+@media (max-width: 430px) {
+  header p { font-size: .76rem; }
+  .kicker { font-size: .62rem; }
+  .bleControls { display: grid; }
+  .payloadControls { display: grid; grid-template-columns: 1fr 1fr; }
+  .payloadControls button { min-width: 0; }
+  .routineBuilder { grid-template-columns: 1fr 1fr; }
+  .consoleActions { grid-template-columns: 1fr; }
+  .consoleActions button:last-child { grid-column: auto; }
+}
