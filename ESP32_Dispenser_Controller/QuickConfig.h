@@ -4,7 +4,7 @@
 /*
   BEGINNER QUICK CONFIGURATION
 
-  This file sits beside ESP32_Stepper_GPIO_DAC_Controller.ino and appears as a
+  This file sits beside ESP32_Dispenser_Controller.ino and appears as a
   neighboring tab in Arduino IDE. Change only the values you need, leave the
   applicator disconnected while testing, then rebuild and upload the sketch.
 

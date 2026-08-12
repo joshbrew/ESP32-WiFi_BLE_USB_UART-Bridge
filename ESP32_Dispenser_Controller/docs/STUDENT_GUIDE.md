@@ -5,7 +5,7 @@ sketch: configuration, `setup()`, repeated service, commands, then automation.
 
 ## 1. Find the approachable layer
 
-Open `ESP32_Stepper_GPIO_DAC_Controller.ino`.
+Open `ESP32_Dispenser_Controller.ino`.
 
 The global objects are the subsystems. `setup()` starts them in a deliberate
 order. `loop()` either provides the fallback service call or sleeps while the

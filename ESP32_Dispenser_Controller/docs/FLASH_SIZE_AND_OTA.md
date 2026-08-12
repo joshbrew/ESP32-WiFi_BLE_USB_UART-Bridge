@@ -23,21 +23,28 @@ The default dispenser profile excludes the complete stepper/DAC implementation.
 Set the quick profile to `2` only for a compatible bench build. Commenting out
 `APP_ENABLE_STATUS_INDICATORS` compiles all indicator GPIO activity out.
 
-The hosted portal is gzip-compressed into `src/web/WebAssets.h`. `build_opt.h`
-keeps the AsyncTCP stack configuration beside the Arduino sketch.
+The hosted portal is gzip-compressed into `src/web/WebAssets.h`. After editing
+`web/index.html`, `web/app.css`, or `web/app.js`, run
+`node web/build_web_assets.mjs`; use `--check` to detect stale generated assets
+without writing. The script requires no npm packages. `build_opt.h` keeps the
+AsyncTCP stack configuration beside the Arduino sketch.
 
-For `WEMOS LOLIN32`, select `Minimal SPIFFS (Large APPS with OTA)`. It provides
-the two large application slots required by this build and its uploader. The
-default 1.25 MB application partition is too small, while `Huge APP` does not
-provide the inactive application slot required by OTA. The Arduino linker
-output is the authoritative application-size check.
+Use FQBN `esp32:esp32:lolin32`: the Arduino menu calls it `WEMOS LOLIN32`, and
+the installed definition targets the classic ESP32 with 4 MB flash in DIO mode.
+Select partition option `PartitionScheme=min_spiffs`, displayed as `Minimal
+SPIFFS (Large APPS with OTA)`. Its `min_spiffs.csv` layout provides two
+1,966,080-byte (`0x1E0000`) OTA application slots and 128 KiB (`0x20000`) SPIFFS,
+plus NVS, OTA metadata, and coredump partitions. The default 1.25 MB application
+partition is too small, while `Huge APP` does not provide the inactive
+application slot required by OTA. The Arduino linker output is the authoritative
+application-size check.
 
 With ESP32 core 3.3.10 and the current library set, the warning-clean builds
 measure approximately:
 
 | Profile | Application bytes | OTA-slot use | Static RAM |
 |---|---:|---:|---:|
-| Dispenser | 1,931,127 | 98% | 71,288 bytes |
+| Dispenser | 1,931,111 | 98% | 71,288 bytes |
 | Stepper/DAC bench | 1,959,299 | 99% | 71,608 bytes |
 
 The advanced profile has only about 6.6 KiB of application headroom. Before

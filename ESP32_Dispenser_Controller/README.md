@@ -14,10 +14,10 @@ firmware.
 
 1. Read [docs/STUDENT_GUIDE.md](docs/STUDENT_GUIDE.md).
 2. Confirm the external switch is held inactive while the ESP32 is reset.
-3. Open `ESP32_Stepper_GPIO_DAC_Controller.ino` in Arduino IDE.
+3. Open `ESP32_Dispenser_Controller.ino` in Arduino IDE.
 4. Open the neighboring `QuickConfig.h` tab and confirm the pinout.
 5. Install the maintained ESP32Async `AsyncTCP` and `ESPAsyncWebServer` libraries.
-6. Select `WEMOS LOLIN32` board and `Minimal SPIFFS (Large APPS with OTA)` partition scheme.
+6. Select the exact board and partition settings described below.
 7. Upload with the dispenser disconnected or unloaded for the first test.
 8. Open Serial Monitor at 115200 baud and send `Status`.
 
@@ -27,6 +27,24 @@ The browser console is available from the default access point:
 SSID: Drone-Gel-Controller
 Password: password
 URL: http://192.168.4.1/
+```
+
+### Exact Arduino board settings
+
+- Board package: Espressif `esp32` core 3.3.10 or a compatible release.
+- Arduino board menu: `WEMOS LOLIN32`.
+- Fully qualified board name: `esp32:esp32:lolin32`.
+- MCU/target: classic ESP32 (`build.mcu=esp32`, `build.target=esp32`).
+- Flash: 4 MB, DIO mode.
+- Partition menu: `Minimal SPIFFS (Large APPS with OTA)`.
+- Partition identifier: `min_spiffs` (`PartitionScheme=min_spiffs`).
+- Layout: two 1,966,080-byte (`0x1E0000`) OTA application slots, 128 KiB
+  (`0x20000`) SPIFFS, plus NVS, OTA metadata, and coredump partitions.
+
+Equivalent Arduino CLI selection:
+
+```text
+--fqbn esp32:esp32:lolin32 --board-options PartitionScheme=min_spiffs
 ```
 
 ## Normal operating sequence
@@ -228,7 +246,7 @@ GPIO26. Stepper and DAC boot tests remain disabled unless explicitly enabled in
 ## Source map
 
 ```text
-ESP32_Stepper_GPIO_DAC_Controller.ino   Small Arduino entrypoint
+ESP32_Dispenser_Controller.ino           Small Arduino entrypoint
 QuickConfig.h                           Beginner hardware and network defaults
 src/config/AppConfig.h                  Advanced limits and build flags
 src/addons/dispenser/DispenserAddon.*  Arming, pulse, interlock, safe GPIO config
@@ -263,6 +281,19 @@ The editable files are `web/index.html`, `web/app.css`, and `web/app.js`. Their
 gzip representation served by the ESP32 is stored in `src/web/WebAssets.h`.
 `web/standalone_console.html` is a generated, self-contained copy for opening
 from a laptop and targeting a controller URL; it is not embedded in firmware.
+
+After changing any frontend source, rebuild both generated files with Node.js:
+
+```text
+node web/build_web_assets.mjs
+```
+
+The script uses only Node's built-in modules and produces deterministic gzip
+bytes. To check for stale generated files without changing anything, run:
+
+```text
+node web/build_web_assets.mjs --check
+```
 
 ## Recommended ground-test checklist
 

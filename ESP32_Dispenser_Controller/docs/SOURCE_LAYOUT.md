@@ -1,8 +1,8 @@
 # Source layout
 
 ```text
-ESP32_Stepper_GPIO_DAC_Controller/
-|-- ESP32_Stepper_GPIO_DAC_Controller.ino  Arduino setup/loop entrypoint
+ESP32_Dispenser_Controller/
+|-- ESP32_Dispenser_Controller.ino          Arduino setup/loop entrypoint
 |-- QuickConfig.h                          Beginner settings; Arduino IDE tab
 |-- README.md                              Project and safety overview
 |-- COMMANDS.md                            Command reference
@@ -19,6 +19,7 @@ ESP32_Stepper_GPIO_DAC_Controller/
 |   |-- hardware/                           Status indicators
 |   `-- web/                                HTTP, OTA, embedded portal bytes
 |-- web/                                    Editable browser sources
+|   `-- build_web_assets.mjs                Gzip/standalone generator
 `-- docs/                                   Student and advanced notes
 ```
 

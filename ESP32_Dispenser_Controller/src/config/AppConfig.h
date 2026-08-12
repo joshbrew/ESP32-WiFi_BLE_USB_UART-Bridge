@@ -61,7 +61,7 @@
 #define DRONE_CFG_WIFI_AP_SSID "Drone-Gel-Controller"
 #endif
 #ifndef DRONE_CFG_WIFI_AP_PASSWORD
-#define DRONE_CFG_WIFI_AP_PASSWORD "dronegel32"
+#define DRONE_CFG_WIFI_AP_PASSWORD "password"
 #endif
 #ifndef DRONE_CFG_STEPPER_IN1_PIN
 #define DRONE_CFG_STEPPER_IN1_PIN 18
