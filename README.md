@@ -6,7 +6,7 @@ This repo contains two Arduino projects. This is a full suite so you only need t
 
 Is just the transport layer containing all communication methods and the unified command interface.
 
-#### [ESP32_Dispenser_Controller]([https://github.com/joshbrew/ESP32-WiFi_BLE_USB_UART-Bridge/tree/main/ESP32_Stepper_Dual_DAC_RTOS_Controller](https://github.com/joshbrew/ESP32-WiFi_BLE_USB_UART-Bridge/tree/main/ESP32_Dispenser_Controller))
+#### [ESP32_Dispenser_Controller](https://github.com/joshbrew/ESP32-WiFi_BLE_USB_UART-Bridge/tree/main/ESP32_Dispenser_Controller)
 
 Contains GPIO, DAC, and Stepper commands in a configurable suite.
 
