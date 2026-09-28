@@ -13,8 +13,12 @@
 
   These are compile-time defaults. A standalone configuration saved with
   DispenserSave, or a named payload profile selected at runtime, still wins at
-  boot until you send DispenserErase and reboot. Named profile records remain
-  available until PayloadProfileDelete or PayloadProfileEraseAll is used.
+  boot after a firmware update. Check DispenserStatus for the active maxMs and
+  armMs. To raise an older saved 2000 ms limit, disarm, send
+  DispenserArmTimeout:120000 followed by DispenserMaxPulse:60000, then save with
+  DispenserSave or PayloadProfileSave:<active-name>. DispenserErase and reboot
+  instead restores the compiled defaults; named profile records remain until
+  PayloadProfileDelete or PayloadProfileEraseAll is used.
 */
 
 #define DRONE_USE_QUICK_CONFIG 1
@@ -31,15 +35,19 @@
 // ACTIVE_HIGH 1 means HIGH activates the switch; use 0 for active-low hardware.
 #define DRONE_CFG_DISPENSER_PIN 26
 #define DRONE_CFG_DISPENSER_ACTIVE_HIGH 1
-// Default pulse is used by GPIOxx:ON compatibility commands. MAX is the hard
-// upper bound for every manual, routine, and saved-profile pulse. A runtime
-// profile may choose a smaller limit but can never raise this ceiling.
-// All times are milliseconds.
+// All times are milliseconds: 60000 = 60 seconds; 120000 = 2 minutes.
+// DEFAULT is used by the legacy GPIO26:ON command, not by Dispense:milliseconds.
+// MAX is the hard upper bound for manual and routine pulses. A saved profile
+// can choose a lower maximum but cannot exceed this compiled ceiling.
+// A pulse must fit entirely inside the time remaining since the last Arm.
+// Keep the arming window longer than MAX so a full-length pulse can start.
+// If too little time remains, send Arm again before requesting the pulse.
 #define DRONE_CFG_DISPENSER_DEFAULT_PULSE_MS 250UL
-#define DRONE_CFG_DISPENSER_MAX_PULSE_MS 2000UL
+#define DRONE_CFG_DISPENSER_MAX_PULSE_MS 60000UL
 // Arm automatically expires after this time and never survives a restart.
-// Saved profiles may choose a shorter window but cannot extend this ceiling.
-#define DRONE_CFG_DISPENSER_ARM_TIMEOUT_MS 60000UL
+// This is a readiness window, not an output-on duration. Saved profiles may
+// choose a shorter window but cannot extend this compiled ceiling.
+#define DRONE_CFG_DISPENSER_ARM_TIMEOUT_MS 120000UL
 
 // OPTIONAL EXTERNAL INTERLOCK
 // Set the pin to a valid GPIO input when a physical or flight-controller enable

@@ -279,7 +279,7 @@ code { color: var(--accent); }
       </div>
       <div class="customPulse">
         <label for="pulseDuration">Custom pulse (ms)</label>
-        <input id="pulseDuration" type="number" min="1" max="2000" value="250" inputmode="numeric">
+        <input id="pulseDuration" type="number" min="1" max="60000" value="250" inputmode="numeric">
         <button id="dispensePulse" class="primary">Dispense</button>
       </div>
       <p class="safetyNote">Arming never activates the output. Every dispense command has a hard time limit, and STOP ALL cancels the output and disarms the controller.</p>
@@ -293,7 +293,7 @@ code { color: var(--accent); }
       <p id="routineSummary" class="hint">Build a bounded pulse-and-wait routine, save it in controller memory, then arm before running.</p>
       <div class="routineBuilder">
         <label>Name<input id="routineName" maxlength="15" value="dots" spellcheck="false"></label>
-        <label>Pulse ms<input id="routinePulse" type="number" min="1" max="2000" value="200"></label>
+        <label>Pulse ms<input id="routinePulse" type="number" min="1" max="60000" value="200"></label>
         <label>Gap ms<input id="routineGap" type="number" min="0" max="120000" value="800"></label>
         <label>Repeats<input id="routineRepeats" type="number" min="1" max="20" value="6"></label>
       </div>
@@ -636,9 +636,9 @@ function renderState(data) {
   elements.payloadState.textContent = payload;
   elements.payloadState.className = `stateBadge ${dispenser.faulted ? "fault" : dispenser.dispensing ? "active" : dispenser.armed ? "armed" : "safe"}`;
   elements.payloadMeta.textContent = addon.dispenser
-    ? `GPIO${dispenser.pin} · output ${dispenser.dispensing ? "ACTIVE" : "inactive"} · pulse ${dispenser.remainingMs || 0} ms remaining · arm ${dispenser.armRemainingMs || 0} ms remaining${dispenser.interlockConfigured ? ` · interlock ${dispenser.interlockOpen ? "open" : "CLOSED"}` : ""}`
+    ? `GPIO${dispenser.pin} · output ${dispenser.dispensing ? "ACTIVE" : "inactive"} · max pulse ${dispenser.maxPulseMs || 0} ms · pulse ${dispenser.remainingMs || 0} ms remaining · arm ${dispenser.armRemainingMs || 0} ms remaining${dispenser.interlockConfigured ? ` · interlock ${dispenser.interlockOpen ? "open" : "CLOSED"}` : ""}`
     : "This build uses the optional advanced stepper/DAC hardware profile.";
-  const maxPulseMs = dispenser.maxPulseMs || 2000;
+  const maxPulseMs = dispenser.maxPulseMs || 60000;
   elements.pulseDuration.max = String(maxPulseMs);
   elements.routinePulse.max = String(maxPulseMs);
   elements.routineSummary.textContent = routine.active
@@ -970,7 +970,7 @@ function routineName() {
 }
 async function saveRoutinePreset() {
   const name = routineName();
-  const maxPulse = Number(state.latest?.dispenser?.maxPulseMs) || 2000;
+  const maxPulse = Number(state.latest?.dispenser?.maxPulseMs) || 60000;
   const pulse = readInteger(elements.routinePulse, 1, maxPulse, "Pulse");
   const gap = readInteger(elements.routineGap, 0, 120000, "Gap");
   const repeats = readInteger(elements.routineRepeats, 1, 20, "Repeats");
@@ -987,7 +987,7 @@ async function runNamedRoutine() {
   await runCommand(`RoutineRun:${routineName()}`);
 }
 async function customDispense() {
-  const max = Number(state.latest?.dispenser?.maxPulseMs) || 2000;
+  const max = Number(state.latest?.dispenser?.maxPulseMs) || 60000;
   const duration = readInteger(elements.pulseDuration, 1, max, "Pulse");
   await runCommand(`Dispense:${duration}`, true);
 }

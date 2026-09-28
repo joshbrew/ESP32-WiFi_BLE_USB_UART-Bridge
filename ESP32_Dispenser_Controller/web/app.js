@@ -255,9 +255,9 @@ function renderState(data) {
   elements.payloadState.textContent = payload;
   elements.payloadState.className = `stateBadge ${dispenser.faulted ? "fault" : dispenser.dispensing ? "active" : dispenser.armed ? "armed" : "safe"}`;
   elements.payloadMeta.textContent = addon.dispenser
-    ? `GPIO${dispenser.pin} · output ${dispenser.dispensing ? "ACTIVE" : "inactive"} · pulse ${dispenser.remainingMs || 0} ms remaining · arm ${dispenser.armRemainingMs || 0} ms remaining${dispenser.interlockConfigured ? ` · interlock ${dispenser.interlockOpen ? "open" : "CLOSED"}` : ""}`
+    ? `GPIO${dispenser.pin} · output ${dispenser.dispensing ? "ACTIVE" : "inactive"} · max pulse ${dispenser.maxPulseMs || 0} ms · pulse ${dispenser.remainingMs || 0} ms remaining · arm ${dispenser.armRemainingMs || 0} ms remaining${dispenser.interlockConfigured ? ` · interlock ${dispenser.interlockOpen ? "open" : "CLOSED"}` : ""}`
     : "This build uses the optional advanced stepper/DAC hardware profile.";
-  const maxPulseMs = dispenser.maxPulseMs || 2000;
+  const maxPulseMs = dispenser.maxPulseMs || 60000;
   elements.pulseDuration.max = String(maxPulseMs);
   elements.routinePulse.max = String(maxPulseMs);
   elements.routineSummary.textContent = routine.active
@@ -589,7 +589,7 @@ function routineName() {
 }
 async function saveRoutinePreset() {
   const name = routineName();
-  const maxPulse = Number(state.latest?.dispenser?.maxPulseMs) || 2000;
+  const maxPulse = Number(state.latest?.dispenser?.maxPulseMs) || 60000;
   const pulse = readInteger(elements.routinePulse, 1, maxPulse, "Pulse");
   const gap = readInteger(elements.routineGap, 0, 120000, "Gap");
   const repeats = readInteger(elements.routineRepeats, 1, 20, "Repeats");
@@ -606,7 +606,7 @@ async function runNamedRoutine() {
   await runCommand(`RoutineRun:${routineName()}`);
 }
 async function customDispense() {
-  const max = Number(state.latest?.dispenser?.maxPulseMs) || 2000;
+  const max = Number(state.latest?.dispenser?.maxPulseMs) || 60000;
   const duration = readInteger(elements.pulseDuration, 1, max, "Pulse");
   await runCommand(`Dispense:${duration}`, true);
 }

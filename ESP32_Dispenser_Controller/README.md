@@ -95,7 +95,12 @@ DISARMED -> ARMED -> DISPENSING
 - Arming is never written to NVS.
 - Dispense duration must fit the active profile maximum, which can never exceed
   the compiled `DISPENSER_MAX_PULSE_MS` ceiling.
-- The default compiled maximum pulse is 2000 ms.
+- The default compiled maximum pulse is 60000 ms (60 seconds). The default
+  arming window is 120000 ms so a full-length pulse can fit after arming.
+- Saved dispenser settings and named profiles keep their own maximum pulse after
+  a firmware update. To allow a 60-second pulse with the active saved setup,
+  disarm, send `DispenserArmTimeout:120000` and `DispenserMaxPulse:60000`, then
+  save with `DispenserSave` or `PayloadProfileSave:<active-name>` as appropriate.
 - A new dispense request is rejected while a pulse is already active, so
   repeated commands cannot silently extend one activation.
 - Closing the optional interlock immediately stops and faults the dispenser.
@@ -189,8 +194,8 @@ IDE tab. It contains the settings students are expected to change:
 #define DRONE_CFG_DISPENSER_PIN 26
 #define DRONE_CFG_DISPENSER_ACTIVE_HIGH 1
 #define DRONE_CFG_DISPENSER_DEFAULT_PULSE_MS 250UL
-#define DRONE_CFG_DISPENSER_MAX_PULSE_MS 2000UL
-#define DRONE_CFG_DISPENSER_ARM_TIMEOUT_MS 60000UL
+#define DRONE_CFG_DISPENSER_MAX_PULSE_MS 60000UL
+#define DRONE_CFG_DISPENSER_ARM_TIMEOUT_MS 120000UL
 #define DRONE_CFG_INTERLOCK_PIN -1
 ```
 

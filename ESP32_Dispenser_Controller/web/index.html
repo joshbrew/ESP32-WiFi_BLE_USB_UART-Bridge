@@ -36,7 +36,7 @@
       </div>
       <div class="customPulse">
         <label for="pulseDuration">Custom pulse (ms)</label>
-        <input id="pulseDuration" type="number" min="1" max="2000" value="250" inputmode="numeric">
+        <input id="pulseDuration" type="number" min="1" max="60000" value="250" inputmode="numeric">
         <button id="dispensePulse" class="primary">Dispense</button>
       </div>
       <p class="safetyNote">Arming never activates the output. Every dispense command has a hard time limit, and STOP ALL cancels the output and disarms the controller.</p>
@@ -50,7 +50,7 @@
       <p id="routineSummary" class="hint">Build a bounded pulse-and-wait routine, save it in controller memory, then arm before running.</p>
       <div class="routineBuilder">
         <label>Name<input id="routineName" maxlength="15" value="dots" spellcheck="false"></label>
-        <label>Pulse ms<input id="routinePulse" type="number" min="1" max="2000" value="200"></label>
+        <label>Pulse ms<input id="routinePulse" type="number" min="1" max="60000" value="200"></label>
         <label>Gap ms<input id="routineGap" type="number" min="0" max="120000" value="800"></label>
         <label>Repeats<input id="routineRepeats" type="number" min="1" max="20" value="6"></label>
       </div>
