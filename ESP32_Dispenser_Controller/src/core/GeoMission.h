@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include "../config/AppConfig.h"
 #include "RoutineEngine.h"
+#include "MavlinkStream.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #if APP_WIFI_ENABLED
@@ -22,13 +23,18 @@ class GeoMission {
   String stateJson(bool compact) const;
   // Called by HTTP tasks: overwrite one latest sample; never execute outputs.
   bool submitPosition(const String &body);
+  // Called on the control task after draining the bounded BLE byte queue.
+  void receiveBleMavlink(const uint8_t *data, size_t length, uint32_t receivedAt);
  private:
   struct InputFix { double latitude, longitude; float accuracy; uint32_t ageMs, receivedAt; bool valid; };
   struct Point { double latitude, longitude; float tolerance; char routine[16]; };
   struct Plan { uint32_t magic; uint16_t count; uint8_t source; Point points[AppConfig::GEO_MAX_POINTS]; uint32_t checksum; };
   QueueHandle_t positionQueue_ = nullptr;
+  MavlinkStream bleStream_;
+  uint32_t sourceChangedAt_ = 0;
   void resetPosition();
   void pollMavlink();
+  void consumeMavlink(const MavlinkPosition::Message &message, uint32_t receivedAt);
   void position(double latitude, double longitude, float accuracy, uint32_t ageMs);
   bool fresh() const;
   bool parsePosition(const String &body, InputFix &fix) const;

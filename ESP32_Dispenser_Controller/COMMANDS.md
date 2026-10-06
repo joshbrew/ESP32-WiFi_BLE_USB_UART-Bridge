@@ -169,7 +169,7 @@ self-test, transport-send, and nested routine commands.
 
 ## Coordinate-triggered routines
 
-Select `GeoSource:MAVLINK` or `GeoSource:API`, build up to 256 ordered points with
+Select `GeoSource:MAVLINK` (UDP), `GeoSource:BLE` (Bluetooth), or `GeoSource:API`, build up to 256 ordered points with
 `GeoAdd:latitude,longitude,radiusMeters,savedRoutineName`, then `GeoSave`.
 `GeoStart` explicitly enables automatic arming/routine execution at each next
 point; it starts at point 1 and requires a fresh position. `GeoStop` stops output
@@ -181,7 +181,7 @@ use `POST /api/position` with those four plain-text fields for continuous input.
 ESP32 itself for testing without a drone. Select MAVLink and enable Wi-Fi first.
 The console offers manual GPS input and a one-second repeat feed for long tests.
 Position loss for over three seconds stops the sequence. See the
-[position integration guide](docs/COORDINATE_ROUTINES.md) for MAVLink, proprietary
+[position integration guide](docs/COORDINATE_ROUTINES.md) for MAVLink, Bluetooth GPS, proprietary
 provider contracts, timing behavior, and setup examples.
 
 ## Core

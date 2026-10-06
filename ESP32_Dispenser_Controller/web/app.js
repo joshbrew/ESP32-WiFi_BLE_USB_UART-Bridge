@@ -4,6 +4,7 @@
 const BLE_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const BLE_RX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 const BLE_TX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+const BLE_GPS_UUID = "6e400004-b5a3-f393-e0a9-e50e24dcca9e";
 const BLE_CHUNK = 20;
 const API_BASE = String(window.ESP32_API_BASE || "").replace(/\/+$/, "");
 const enc = new TextEncoder();
@@ -16,7 +17,7 @@ for (const id of [
   "stopDispense", "routineName", "routinePulse", "routineGap",
   "routineRepeats", "routineContinuous", "routineDelay", "savedRoutines", "saveRoutine", "runRoutine", "stopRoutine", "useHourLimit",
   "wifiRole", "wifiSsid", "wifiPassword", "wifiProtocol", "wifiOpenNetwork", "saveWifi", "wifiSetupStatus",
-  "geoPoints", "geoSource", "geoStatus", "saveGeo", "startGeo", "stopGeo", "geoTestPosition", "geoTestSend", "geoTestStream",
+  "geoPoints", "geoSource", "geoStatus", "saveGeo", "startGeo", "stopGeo", "geoTestPosition", "geoTestSend", "geoTestStream", "geoPhoneGps",
   "routineSummary", "connectBle", "disconnectBle", "transportSummary",
   "compiledSummary", "commandPreset", "commandInput", "sendCommands",
   "stopAll", "clearLog", "log", "statusSummary", "statusGrid",
@@ -35,6 +36,10 @@ const state = {
   bleDevice: null,
   bleRx: null,
   bleTx: null,
+  bleGpsRx: null,
+  gpsSequence: 0,
+  gpsBootMs: 0,
+  phoneGpsWatch: null,
   bleBuffer: "",
   bleStatePending: false,
   bleStateAt: 0,
@@ -205,6 +210,7 @@ function buildCommandMenu() {
 }
 
 function updateActions() {
+  const ble = usingBle();
   const addon = state.latest?.addon || {};
   const dispenser = state.latest?.dispenser || {};
   const routine = state.latest?.routine || {};
@@ -227,9 +233,11 @@ function updateActions() {
   elements.useHourLimit.disabled = state.busy || dispenser.armed || dispenser.dispensing || routine.active || geo.active || addon.dispenser !== true;
   elements.saveGeo.disabled = state.busy || geo.active || addon.dispenser !== true;
   elements.startGeo.disabled = state.busy || geo.active || !geo.saved || !geo.count || !geo.fresh || routine.active || addon.dispenser !== true;
-  elements.geoTestSend.disabled = state.busy || geo.source !== "MAVLINK";
-  elements.geoTestStream.disabled = geo.source !== "MAVLINK";
-  if (geo.source !== "MAVLINK") stopTestGps();
+  const gpsReady = geo.source === "MAVLINK" || (geo.source === "BLE" && ble && state.bleGpsRx);
+  elements.geoTestSend.disabled = state.busy || !gpsReady || state.phoneGpsWatch !== null;
+  elements.geoTestStream.disabled = !gpsReady || state.phoneGpsWatch !== null;
+  elements.geoPhoneGps.disabled = geo.source !== "BLE" || !ble || !state.bleGpsRx || !navigator.geolocation;
+  if (!gpsReady || (state.phoneGpsWatch !== null && geo.source !== "BLE")) stopTestGps();
   elements.saveWifi.disabled = state.busy || routine.active || geo.active;
   if (elements.commandPreset.selectedOptions[0]?.disabled) elements.commandPreset.selectedIndex = 0;
 }
@@ -284,7 +292,7 @@ function renderState(data) {
     : `${routine.stored || 0}/${routine.capacity || 0} routine slots used. Arm the dispenser before running.`;
   renderSavedRoutines(routine.library || []);
   const geo = data.geo || {};
-  if (!elements.geoSource.dataset.initialized && !elements.geoSource.dataset.edited && ["API", "MAVLINK"].includes(geo.source)) {
+  if (!elements.geoSource.dataset.initialized && !elements.geoSource.dataset.edited && ["API", "MAVLINK", "BLE"].includes(geo.source)) {
     elements.geoSource.value = geo.source; elements.geoSource.dataset.initialized = "true";
   }
   elements.geoStatus.textContent = `${geo.active ? (geo.running ? "Running routine" : "Waiting for next point") : "Stopped"} · ${geo.count || 0} points · next ${(geo.next || 0) + 1} · ${geo.source || "MAVLINK"} position ${geo.fresh ? "fresh" : "unavailable / stale"}${geo.distance !== undefined ? ` · ${geo.distance} m from next point` : ""}`;
@@ -359,22 +367,23 @@ function postHttp(body, id = rid(), fast = false) {
   return pending;
 }
 
-async function writeBleNow(text) {
+async function writeBleNow(text, characteristic = state.bleRx) {
   if (!usingBle()) throw new Error("BLE disconnected");
-  const bytes = enc.encode(text);
+  if (!characteristic) throw new Error("Bluetooth GPS channel unavailable; update the controller firmware");
+  const bytes = typeof text === "string" ? enc.encode(text) : text;
   for (let index = 0; index < bytes.length; index += BLE_CHUNK) {
     const chunk = bytes.slice(index, index + BLE_CHUNK);
-    if (state.bleRx.writeValueWithoutResponse) await state.bleRx.writeValueWithoutResponse(chunk);
-    else await state.bleRx.writeValue(chunk);
+    if (characteristic.writeValueWithoutResponse) await characteristic.writeValueWithoutResponse(chunk);
+    else await characteristic.writeValue(chunk);
     await sleep(14);
   }
 }
 
-function writeBle(text) {
+function writeBle(text, characteristic = state.bleRx) {
   const generation = state.commandGeneration;
   const run = () => {
     if (generation !== state.commandGeneration) throw new Error("Pending BLE command cancelled by stop");
-    return writeBleNow(text);
+    return writeBleNow(text, characteristic);
   };
   // Keep complete lines intact when a stop arrives during a fragmented write.
   const pending = state.bleWriteTail.then(run, run);
@@ -430,6 +439,7 @@ function bleDisconnected() {
   state.transport = "http";
   state.bleRx = null;
   state.bleTx = null;
+  state.bleGpsRx = null;
   state.bleBuffer = "";
   state.nextStateAt = 0;
   setLive(false, "BLE disconnected");
@@ -451,6 +461,7 @@ async function connectBle() {
   const service = await server.getPrimaryService(BLE_SERVICE_UUID);
   state.bleRx = await service.getCharacteristic(BLE_RX_UUID);
   state.bleTx = await service.getCharacteristic(BLE_TX_UUID);
+  state.bleGpsRx = await service.getCharacteristic(BLE_GPS_UUID).catch(() => null);
   await state.bleTx.startNotifications();
   state.bleTx.addEventListener("characteristicvaluechanged", handleBleData);
   state.bleDevice = device;
@@ -713,13 +724,65 @@ async function saveCoordinateSequence() {
 function stopTestGps() {
   clearInterval(state.testGpsTimer); state.testGpsTimer = null;
   elements.geoTestStream.checked = false;
+  if (state.phoneGpsWatch !== null) navigator.geolocation.clearWatch(state.phoneGpsWatch);
+  state.phoneGpsWatch = null; elements.geoPhoneGps.checked = false;
+}
+function bluetoothPosition(lat, lon, accuracy, measuredAt = Date.now()) {
+  // Keep GLOBAL_POSITION_INT advancing for new samples, including two writes
+  // in one millisecond. Cached phone measurements never get a new timestamp.
+  const boot = Math.max(state.gpsBootMs + 1, Math.floor(performance.now())) >>> 0;
+  state.gpsBootMs = boot;
+  const gps = new Uint8Array(38), global = new Uint8Array(28);
+  const g = new DataView(gps.buffer), p = new DataView(global.buffer);
+  const micros = Math.floor(measuredAt * 1000);
+  g.setUint32(0, micros >>> 0, true); g.setUint32(4, Math.floor(micros / 4294967296), true);
+  for (const [view, offset] of [[g, 8], [p, 4]]) {
+    view.setInt32(offset, Math.round(lat * 1e7), true); view.setInt32(offset + 4, Math.round(lon * 1e7), true);
+  }
+  for (const offset of [20, 22, 24, 26]) g.setUint16(offset, 65535, true);
+  gps[28] = 3; gps[29] = 255; g.setUint32(34, Math.max(1, Math.round(accuracy * 1000)), true);
+  p.setUint32(0, boot, true); p.setUint16(26, 65535, true);
+  const frame = (id, payload, extra) => {
+    const bytes = new Uint8Array(payload.length + 12);
+    bytes.set([253, payload.length, 0, 0, state.gpsSequence++ & 255, 1, 1, id, 0, 0]); bytes.set(payload, 10);
+    let crc = 65535;
+    for (const byte of [...bytes.slice(1, -2), extra]) {
+      crc ^= byte; for (let i = 0; i < 8; ++i) crc = (crc >>> 1) ^ (crc & 1 ? 0x8408 : 0);
+    }
+    bytes[bytes.length - 2] = crc & 255; bytes[bytes.length - 1] = crc >>> 8;
+    return bytes;
+  };
+  const result = new Uint8Array(90); result.set(frame(24, gps, 24)); result.set(frame(33, global, 104), 50);
+  return result;
 }
 async function sendTestGps() {
   const fields = elements.geoTestPosition.value.split(",").map(value => value.trim());
   const [lat, lon, accuracy] = fields.map(Number);
   if (fields.length !== 3 || fields.some(value => !value) || !Number.isFinite(lat) || Math.abs(lat) > 90 || !Number.isFinite(lon) || Math.abs(lon) > 180 || !Number.isFinite(accuracy) || accuracy < 0 || accuracy > 100000)
     throw new Error("Enter latitude,longitude,accuracy in meters");
-  await runCommand(`GeoTestPosition:${lat},${lon},${accuracy}`);
+  if (state.latest?.geo?.source === "BLE") {
+    await writeBle(bluetoothPosition(lat, lon, accuracy), state.bleGpsRx);
+    log("Test GPS position sent over Bluetooth", "status");
+  } else await runCommand(`GeoTestPosition:${lat},${lon},${accuracy}`);
+}
+function startPhoneGps() {
+  stopTestGps();
+  if (!usingBle() || !state.bleGpsRx || state.latest?.geo?.source !== "BLE") throw new Error("Connect BLE and save Bluetooth as the position source first");
+  elements.geoPhoneGps.checked = true;
+  let lastMeasurement = 0;
+  state.phoneGpsWatch = navigator.geolocation.watchPosition(position => {
+    if (state.phoneGpsWatch === null || position.timestamp <= lastMeasurement || Date.now() - position.timestamp > 3000 || position.timestamp > Date.now()) return;
+    lastMeasurement = position.timestamp;
+    const generation = state.commandGeneration;
+    // Skip a measurement if another write is in progress. Never queue stale GPS.
+    if (state.busy || state.otaActive) return;
+    withLock(async () => {
+      if (generation !== state.commandGeneration || state.phoneGpsWatch === null || Date.now() - position.timestamp > 3000) return;
+      await writeBle(bluetoothPosition(position.coords.latitude, position.coords.longitude, position.coords.accuracy, position.timestamp), state.bleGpsRx);
+    });
+  }, error => { stopTestGps(); updateActions(); log(`Phone GPS: ${error.message}`, "error"); },
+  { enableHighAccuracy: true, maximumAge: 0, timeout: 3000 });
+  updateActions();
 }
 
 document.addEventListener("click", event => {
@@ -757,6 +820,10 @@ elements.saveWifi.addEventListener("click", () => withLock(saveWifiSettings));
 elements.geoSource.addEventListener("change", () => { elements.geoSource.dataset.edited = "true"; });
 elements.saveGeo.addEventListener("click", () => withLock(saveCoordinateSequence));
 elements.geoTestSend.addEventListener("click", () => withLock(sendTestGps));
+elements.geoPhoneGps.addEventListener("change", () => {
+  if (!elements.geoPhoneGps.checked) { stopTestGps(); updateActions(); return; }
+  try { startPhoneGps(); } catch (error) { stopTestGps(); log(error.message, "error"); }
+});
 elements.geoTestStream.addEventListener("change", () => {
   if (!elements.geoTestStream.checked) { stopTestGps(); return; }
   withLock(async () => {

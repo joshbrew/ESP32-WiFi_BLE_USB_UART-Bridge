@@ -588,32 +588,25 @@ bool DispenserAddon::canRunRoutineFor(uint64_t durationMs, String &reason) const
 
 void DispenserAddon::appendStateJson(String &json, bool compact) const {
   const uint32_t now = millis();
-  json += ",\"addon\":{\"name\":\"drone-dispenser\",\"active\":true";
-  json += ",\"dispenser\":true,\"stepper\":false,\"dac\":false}";
-  json += ",\"dispenser\":{";
-  json += "\"pin\":" + String(outputPin_);
-  json += ",\"activeHigh\":" + TextUtil::jsonBool(activeHigh_);
-  json += ",\"armed\":" + TextUtil::jsonBool(armed_);
-  json += ",\"dispensing\":" + TextUtil::jsonBool(dispensing_);
-  json += ",\"faulted\":" + TextUtil::jsonBool(faulted_);
-  json += ",\"interlockConfigured\":" + TextUtil::jsonBool(AppConfig::PIN_DISPENSER_INTERLOCK >= 0);
-  json += ",\"interlockOpen\":" + TextUtil::jsonBool(interlockOpen());
-  json += ",\"remainingMs\":" + String(remainingDispenseMs(now));
-  json += ",\"armRemainingMs\":" + String(remainingArmMs(now));
-  json += ",\"maxPulseMs\":" + String(maxPulseMs_);
-  json += ",\"armTimeoutMs\":" + String(armTimeoutMs_);
-  json += ",\"profile\":\"" + TextUtil::jsonEscape(currentProfileName()) + "\"";
-  json += ",\"count\":" + String(dispenseCount_);
-  json += ",\"maxStopLatenessMs\":" + String(maxStopLatenessMs_);
+  char fields[512];
+  snprintf(fields, sizeof(fields),
+    ",\"addon\":{\"name\":\"drone-dispenser\",\"active\":true,\"dispenser\":true,\"stepper\":false,\"dac\":false},\"dispenser\":{"
+    "\"pin\":%d,\"activeHigh\":%s,\"armed\":%s,\"dispensing\":%s,\"faulted\":%s,\"interlockConfigured\":%s,\"interlockOpen\":%s,"
+    "\"remainingMs\":%lu,\"armRemainingMs\":%lu,\"maxPulseMs\":%lu,\"armTimeoutMs\":%lu,\"count\":%lu,\"maxStopLatenessMs\":%lu,\"profile\":\"",
+    outputPin_, activeHigh_ ? "true" : "false", armed_ ? "true" : "false", dispensing_ ? "true" : "false", faulted_ ? "true" : "false",
+    AppConfig::PIN_DISPENSER_INTERLOCK >= 0 ? "true" : "false", interlockOpen() ? "true" : "false",
+    static_cast<unsigned long>(remainingDispenseMs(now)), static_cast<unsigned long>(remainingArmMs(now)),
+    static_cast<unsigned long>(maxPulseMs_), static_cast<unsigned long>(armTimeoutMs_),
+    static_cast<unsigned long>(dispenseCount_), static_cast<unsigned long>(maxStopLatenessMs_));
+  json += fields; json += TextUtil::jsonEscape(currentProfileName()); json += '"';
   if (!compact) {
-    json += ",\"profileModified\":" + TextUtil::jsonBool(profileModified_);
-    json += ",\"defaultPulseMs\":" + String(defaultPulseMs_);
-    json += ",\"profilesStored\":" + String(storedProfileCount());
-    json += ",\"profilesCapacity\":" + String(AppConfig::DISPENSER_PROFILE_MAX_COUNT);
-    json += ",\"totalDispenseMs\":" + String(totalDispenseMs_);
-    json += ",\"maxServiceGapMs\":" + String(maxServiceGapMs_);
-    json += ",\"lateStopCount\":" + String(lateStopCount_);
-    json += ",\"lastReason\":\"" + TextUtil::jsonEscape(lastReason_) + "\"";
+    snprintf(fields, sizeof(fields),
+      ",\"profileModified\":%s,\"defaultPulseMs\":%lu,\"profilesStored\":%u,\"profilesCapacity\":%u,"
+      "\"totalDispenseMs\":%lu,\"maxServiceGapMs\":%lu,\"lateStopCount\":%lu,\"lastReason\":\"",
+      profileModified_ ? "true" : "false", static_cast<unsigned long>(defaultPulseMs_),
+      static_cast<unsigned>(storedProfileCount()), static_cast<unsigned>(AppConfig::DISPENSER_PROFILE_MAX_COUNT),
+      static_cast<unsigned long>(totalDispenseMs_), static_cast<unsigned long>(maxServiceGapMs_), static_cast<unsigned long>(lateStopCount_));
+    json += fields; json += TextUtil::jsonEscape(lastReason_); json += '"';
   }
   json += "}";
 }

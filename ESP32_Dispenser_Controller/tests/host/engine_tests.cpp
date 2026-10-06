@@ -268,4 +268,42 @@ void udpSelfTestTests() {
   WiFi.statusValue=0;WiFi.modeValue=0;
   std::cout<<"PASS manual MAVLink UDP loopback on AP/client, independent CRC/fields, outside/inside radius, refreshed start delay, stale stop, invalid test positions\n";
 }
-int main(){timingTests();arbitraryRoutineTests();continuousRoutineTests();geoTests();expandedGeoTests();mavlinkTests();mavlinkMissionTests();udpSelfTestTests();}
+void bluetoothGpsTests() {
+  Preferences::records.clear();testDatagrams.clear();testNow=10;WiFi.statusValue=0;WiFi.modeValue=0;
+  EventBus events;Payload payload;RoutineEngine engine(events,payload);engine.begin();engine.configureSubmitter(submit,&payload);
+  preset(engine,"dots",4000,20,1,0);GeoMission geo(events,payload,engine);geo.begin();
+  command(geo,"GeoSource:BLE");command(geo,"GeoAdd:37,-122,5,dots");command(geo,"GeoSave");
+  GeoMission reload(events,payload,engine);reload.begin();assert(reload.stateJson(true).value.find("\"source\":\"BLE\"")!=std::string::npos);
+  std::vector<uint8_t> gps(38);gps[28]=3;put32(gps,34,1000);
+  std::vector<uint8_t> global(28);put32(global,4,370000000);put32(global,8,static_cast<uint32_t>(-1220000000));
+  auto feed=[&](uint32_t boot,size_t chunk=20,bool v2=true) {
+    put32(global,0,boot);auto bytes=frame(24,gps,v2);auto second=frame(33,global,v2);bytes.insert(bytes.end(),second.begin(),second.end());
+    for(size_t i=0;i<bytes.size();i+=chunk)geo.receiveBleMavlink(bytes.data()+i,std::min(chunk,bytes.size()-i),testNow);
+    geo.service();
+  };
+  // BLE alone, one byte writes, multiple frames, and independent UDP source.
+  feed(100,1);assert(geo.stateJson(true).value.find("\"fresh\":true")!=std::string::npos);
+  command(geo,"GeoStart");geo.service();engine.service();assert(engine.isActive());
+  for(unsigned i=0;i<4500&&geo.isActive();++i){++testNow;payload.service();engine.service();if(i%1000==0)feed(101+i,90);geo.service();}
+  assert(!geo.isActive()&&payload.starts.size()==1);
+  ++testNow;feed(5000,20,false);command(geo,"GeoStart");geo.service();assert(engine.isActive());
+  geo.receiveBleMavlink(nullptr,0,testNow);geo.service();assert(!geo.isActive()&&geo.consumeSafetyStop());engine.stop(CommandSource::INTERNAL,"test","BLE disconnect");assert(!payload.output);
+  ++testNow;feed(1);command(geo,"GeoStart");geo.service();assert(engine.isActive());
+  testNow+=3001;feed(1);assert(!geo.isActive()&&geo.consumeSafetyStop());engine.stop(CommandSource::INTERNAL,"test","stale BLE");
+  command(geo,"GeoResetPosition");put32(global,0,200);auto bytes=frame(24,gps);auto second=frame(33,global);bytes.insert(bytes.end(),second.begin(),second.end());
+  geo.receiveBleMavlink(bytes.data(),bytes.size(),testNow-3001);geo.service();assert(geo.stateJson(true).value.find("\"fresh\":false")!=std::string::npos);
+  ++testNow;feed(200);gps[28]=2;++testNow;feed(201);assert(geo.stateJson(true).value.find("\"fresh\":false")!=std::string::npos);
+  command(geo,"GeoSource:API");gps[28]=3;++testNow;feed(202);assert(geo.stateJson(true).value.find("\"fresh\":false")!=std::string::npos);
+  command(geo,"GeoSource:BLE");geo.receiveBleMavlink(bytes.data(),bytes.size(),testNow-1);assert(geo.stateJson(true).value.find("\"fresh\":false")!=std::string::npos);
+  // Framing cannot interpret unknown, signed, corrupt or incomplete frames.
+  MavlinkStream stream;MavlinkPosition::Message message{};uint32_t at=0;unsigned valid=0;
+  auto push=[&](const std::vector<uint8_t>& input,uint32_t received,uint32_t now) {for(uint8_t b:input)if(stream.push(b,received,now,message,at))++valid;};
+  push({0,1,2,3},testNow,testNow);push(frame(33,global,true,1),testNow,testNow);assert(valid==0);
+  auto bad=frame(33,global);bad.back()^=1;push(bad,testNow,testNow);assert(valid==0);
+  push(frame(99,std::vector<uint8_t>(255,0xFD),true,1),testNow,testNow);assert(valid==0);
+  auto truncated=frame(33,global);truncated.resize(12);push(truncated,testNow,testNow);
+  testNow+=1001;push(frame(33,global),testNow,testNow);assert(valid==1&&at==testNow);
+  push(frame(24,gps,false),testNow,testNow);assert(valid==2&&message.fixType==3);
+  std::cout<<"PASS BLE MAVLink 1/2 fragments/noise/CRC/signatures/timeout, Wi-Fi-free mission, saved source, initial delay, disconnect/stale/invalid/source switch\n";
+}
+int main(){timingTests();arbitraryRoutineTests();continuousRoutineTests();geoTests();expandedGeoTests();mavlinkTests();mavlinkMissionTests();udpSelfTestTests();bluetoothGpsTests();}

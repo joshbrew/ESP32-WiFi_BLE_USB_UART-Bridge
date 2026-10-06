@@ -83,6 +83,9 @@ bool CommandRouter::canAccept(const String &line) const {
 bool CommandRouter::positionThunk(void *context, const String &body) {
   return context && static_cast<CommandRouter *>(context)->geo_.submitPosition(body);
 }
+void CommandRouter::mavlinkThunk(void *context, const uint8_t *data, size_t length, uint32_t receivedAt) {
+  if (context) static_cast<CommandRouter *>(context)->geo_.receiveBleMavlink(data, length, receivedAt);
+}
 
 void CommandRouter::submit(
   CommandSource source,

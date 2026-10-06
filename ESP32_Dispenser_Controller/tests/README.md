@@ -21,6 +21,10 @@ Manual GPS tests send actual generated frames through a mocked UDP socket into
 the production receiver. They independently check CRCs and fields, AP/client
 operation, outside/inside-radius triggering, a refreshed four-second delay,
 stale test-feed shutdown, and invalid position rejection.
+Bluetooth tests use the production byte-stream receiver: one-byte and 20-byte
+fragments, combined frames, maximum signed frames, noise, bad CRC, incomplete
+frame timeout, a mission without Wi-Fi, saved BLE source, refreshed initial
+delay, disconnect/stale shutdown, invalid fix, and old data after switching sources.
 
 From the repository root with a C++17 compiler:
 
@@ -58,6 +62,11 @@ of pending commands, serialized BLE writes, mobile width, and the actual minifie
 gzip page embedded in firmware. Set
 `CONSOLE_SCREENSHOT` to capture the console. The Python tests check measurement
 age, invalid fixes, and common MAVLink packet fields.
+Bluetooth browser checks discover the dedicated GPS characteristic, verify raw
+packet fields and CRCs independently, stream phone GPS, reject cached/old phone
+measurements, cancel on Stop, and exercise the production minified BLE GPS path.
+Python checks validate acknowledged BLE chunking and stale-measurement rejection
+without requiring a Bluetooth device or installing Bleak for tests.
 
 Firmware compilation was checked with ESP32 Arduino core 3.3.10,
 `esp32:esp32:lolin32`, `PartitionScheme=min_spiffs`, maintained Async TCP 3.5.0,

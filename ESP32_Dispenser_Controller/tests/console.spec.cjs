@@ -157,6 +157,54 @@ const server = http.createServer((request, response) => {
       return new TextDecoder().decode(new Uint8Array(writes));
     });
     assert.equal(bytes, "GeoPosition:37,-122,1,0\n@STATE\n");
+    // Exercise discovery of the new characteristic, raw writes, and phone GPS
+    // through the real Connect BLE workflow (same mock reused by gzip tests).
+    const installBluetooth = async target => target.evaluate(({ source }) => {
+      window.gpsWrites = []; window.commandWrites = []; window.locationCallbacks = {}; window.clearedWatches = [];
+      const rx = { writeValueWithoutResponse: async value => window.commandWrites.push(...value) };
+      const gps = { writeValueWithoutResponse: async value => window.gpsWrites.push(Array.from(value)) };
+      const tx = { startNotifications: async () => {}, addEventListener: () => {} };
+      const service = { getCharacteristic: async uuid => uuid.includes("0004-") ? gps : uuid.includes("0002-") ? rx : tx };
+      const device = { name: "Mock GPS controller", addEventListener: () => {}, gatt: {
+        connected: true, connect: async () => ({ getPrimaryService: async () => service }), disconnect: () => {}
+      } };
+      Object.defineProperty(navigator, "bluetooth", { configurable: true, value: { requestDevice: async () => device } });
+      Object.defineProperty(navigator, "geolocation", { configurable: true, value: {
+        watchPosition: (success, error) => { window.locationCallbacks = { success, error }; return 42; },
+        clearWatch: id => window.clearedWatches.push(id)
+      } });
+      // The BLE state notification arrives through the same production handler.
+      window.mockGpsState = () => tx;
+      window.mockSnapshot = source;
+    }, { source: { ...snapshot, geo: { ...snapshot.geo, source: "BLE" } } });
+    await installBluetooth(page);
+    await page.evaluate(() => { updateActions(); });
+    await page.locator("#connectBle").click();await page.waitForFunction(() => !state.busy);
+    await page.evaluate(() => handleBleLine("@STATE " + JSON.stringify(window.mockSnapshot)));
+    await page.locator("#geoTestPosition").fill("37,-122,1.25");await page.locator("#geoTestSend").click();
+    await page.waitForFunction(() => !state.busy);
+    const chunks = await page.evaluate(() => window.gpsWrites);
+    assert.deepEqual(chunks.map(value => value.length), [20, 20, 20, 20, 10]);
+    const packet = Buffer.from(chunks.flat());assert.equal(packet.length,90);
+    assert.equal(packet[0],253);assert.equal(packet[7],24);assert.equal(packet[38],3);
+    assert.equal(packet.readUInt32LE(44),1250);assert.equal(packet[50],253);assert.equal(packet[57],33);
+    assert.equal(packet.readInt32LE(64),370000000);assert.equal(packet.readInt32LE(68),-1220000000);
+    for (const [start, end, extra] of [[0, 48, 24], [50, 88, 104]]) {
+      let crc=65535;for(const byte of [...packet.subarray(start+1,end),extra]) {crc^=byte;for(let i=0;i<8;++i)crc=(crc>>>1)^(crc&1?0x8408:0);}
+      assert.equal(packet.readUInt16LE(end),crc);
+    }
+    await page.locator("#geoPhoneGps").check();
+    await page.evaluate(() => {
+      window.phoneSample={timestamp:Date.now(),coords:{latitude:37.1,longitude:-122.2,accuracy:2}};
+      window.locationCallbacks.success(window.phoneSample);
+    });await page.waitForFunction(() => !state.busy);
+    assert.equal(await page.evaluate(() => window.gpsWrites.flat().length),180);
+    await page.evaluate(() => { window.locationCallbacks.success(window.phoneSample); window.locationCallbacks.success({...window.phoneSample,timestamp:Date.now()-5000}); });
+    await page.waitForTimeout(100);assert.equal(await page.evaluate(() => window.gpsWrites.flat().length),180);
+    await page.locator("#stopGeo").click();await page.waitForTimeout(150);
+    assert(!(await page.locator("#geoPhoneGps").isChecked()));assert.deepEqual(await page.evaluate(() => window.clearedWatches),[42]);
+    await page.evaluate(() => { window.locationCallbacks.success({...window.phoneSample,timestamp:Date.now()}); bleDisconnected(); });
+    await page.waitForTimeout(100);assert.equal(await page.evaluate(() => window.gpsWrites.flat().length),180);
     const screenshot = process.env.CONSOLE_SCREENSHOT;
     if (screenshot) await page.screenshot({ path: screenshot, fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -197,6 +245,25 @@ const server = http.createServer((request, response) => {
     assert.deepEqual(errors, []);
     console.log("PASS saved buttons, one-time delay, uncapped input, 32-bit repeats and invalid counts, coordinate batches/validation, client settings/redaction, immediate stop/cancel, BLE framing, mobile width");
     console.log("PASS production minified gzip page, saved buttons, source readback, initial delay, stop during an in-flight request");
+    // Deliver an actual notification; production code is minified and private.
+    await embedded.evaluate(({ source }) => {
+      window.gpsWrites=[];
+      const rx={writeValueWithoutResponse:async value=>{
+        if(new TextDecoder().decode(value)==="@STATE\n") window.bleNotify({target:{value:new DataView(new TextEncoder().encode("@STATE "+JSON.stringify(source)+"\n").buffer)}});
+      }};
+      const tx={startNotifications:async()=>{},addEventListener:(_name,callback)=>window.bleNotify=callback};
+      const gps={writeValueWithoutResponse:async value=>window.gpsWrites.push(...value)};
+      const device={name:"GPS",addEventListener:()=>{},gatt:{connected:true,connect:async()=>({getPrimaryService:async()=>({getCharacteristic:async uuid=>uuid.includes("0004-")?gps:uuid.includes("0002-")?rx:tx})})}};
+      Object.defineProperty(navigator,"bluetooth",{configurable:true,value:{requestDevice:async()=>device}});
+    }, { source: { ...snapshot, geo: { ...snapshot.geo, source: "BLE" } } });
+    await embedded.waitForTimeout(1200);await embedded.locator("#connectBle").click();
+    await embedded.waitForFunction(() => !document.getElementById("geoTestSend").disabled);
+    await embedded.locator("#geoTestPosition").fill("37,-122,1");await embedded.locator("#geoTestSend").click();
+    await embedded.waitForFunction(() => window.gpsWrites.length >= 90);
+    assert.equal(await embedded.evaluate(() => window.gpsWrites[7]),24);
+    assert.equal(await embedded.evaluate(() => window.gpsWrites[57]),33);
+    assert.deepEqual(errors, []);
+    console.log("PASS Bluetooth GPS discovery/raw fragments/CRC/fields, phone GPS freshness/duplicates/stop, production Bluetooth GPS");
   } finally {
     if (heldResponse) heldResponse.destroy();
     await browser.close();

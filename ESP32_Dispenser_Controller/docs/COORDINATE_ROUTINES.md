@@ -48,7 +48,7 @@ proprietary telemetry may prevent using its hotspot.
 ## Ordered coordinate sequence
 
 1. Save each dispenser routine, such as `dots`.
-2. Select one position source: MAVLink or custom API bridge.
+2. Select one position source: MAVLink over Wi-Fi, MAVLink over Bluetooth, or custom API bridge.
 3. Enter one point per line: `latitude,longitude,radiusMeters,routineName`.
    Up to 256 points are supported; radius is 0.1–1000 meters, names 1–15 ASCII
    letters/digits/underscore/hyphen. Coordinates use WGS84 degrees.
@@ -99,10 +99,66 @@ configure a flight controller or companion to forward those streams. Stop the
 sequence and send `GeoResetPosition` after a flight-controller reboot or clock
 reset, then wait for new fixes before starting again.
 
+## Bluetooth GPS fallback
+
+Select **MAVLink over Bluetooth**, save the coordinate sequence, and connect a
+BLE central to **DroneGelBLE**. Command equivalent: `GeoSource:BLE`, `GeoSave`.
+BLE must be enabled in the radio mode. Wi-Fi is optional for this position feed.
+This is an explicitly selected fallback; sources are not automatically mixed or
+switched. After a loss, stop, switch sources if needed, establish a fresh fix,
+and press Start again. Start begins at point 1.
+
+The service UUID is `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`. Write raw unsigned
+MAVLink 1/2 bytes to GPS characteristic **`6E400004-B5A3-F393-E0A9-E50E24DCCA9E`**
+(Write or Write Without Response). Existing text command RX ends in `0002`, and
+event/state notification TX ends in `0003`; keep binary GPS off the text channel.
+Send the same GPS_RAW_INT and GLOBAL_POSITION_INT messages described above,
+system/component 1/1, ideally 2-5 Hz. Frames can span multiple writes or share a
+write. Use 20-byte chunks for compatibility with the default MTU; complete each
+frame within one second. Limit traffic to GPS messages: the input queue holds
+511 usable bytes and overflow invalidates the fix. CRC, fix quality, advancing boot
+timestamp, accuracy, and the three-second freshness checks apply to both paths.
+Disconnect immediately invalidates the selected BLE fix; the control task stops
+an active sequence and output. BLE does not support signed MAVLink or Classic
+Bluetooth SPP/NMEA GPS in this implementation.
+
+With the phone console connected through BLE, manual test coordinates use this
+new binary channel. **Use this phone's GPS over Bluetooth** streams new browser
+location measurements without repeating a cached fix. It uses the phone's
+position, so for flight the source must measure the aircraft. Both
+[Web Bluetooth](https://developer.mozilla.org/en-US/docs/Web/API/Web_Bluetooth_API)
+and [browser location](https://developer.mozilla.org/en-US/docs/Web/API/Geolocation/watchPosition)
+need a secure context and a supported browser; location also needs permission.
+Use the standalone console on HTTPS (or localhost during development). The
+ESP32's ordinary HTTP page cannot supply browser location. Keep the page active;
+background throttling or slow location updates can cause the normal stale stop.
+Stop, Disarm, disconnect, and OTA stop both manual and phone position feeds.
+
+For a programmable controller:
+
+- [ESP32_BLE_GPS_Bridge](../examples/ESP32_BLE_GPS_Bridge/ESP32_BLE_GPS_Bridge.ino)
+  forwards live MAVLink UART GPS to BLE. Set the dispenser BLE MAC, UART pins,
+  and baud rate. Connect source TX to bridge RX and common ground with suitable
+  3.3 V logic. Configure fresh unsigned GPS streams at 2-5 Hz. A raw NMEA receiver
+  needs an adapter that builds these MAVLink messages first. Disconnect/reconnect
+  drops buffered UART data; it does not replay it.
+- [ble_position_bridge.py](../examples/ble_position_bridge.py) runs on a
+  Bluetooth computer or programmable Linux GPS controller. Install `bleak`,
+  then pipe the aircraft JSON format described below into
+  `python ble_position_bridge.py BLE_ADDRESS`. It validates measurement age,
+  emits only new measurements, and writes MAVLink in acknowledged 20-byte chunks.
+
+Use one BLE central: either the phone or the GPS controller. When a GPS controller
+owns BLE, use Wi-Fi or USB for console commands and monitoring. GPS streaming
+alone does not require subscribing to notifications. The existing LR ground
+relay forwards text commands; it does not forward this new binary characteristic.
+BLE is a local connection and does not provide ESP32 Wi-Fi LR range.
+
 ## Test GPS manually without a drone
 
-1. Save a short test routine and a coordinate sequence using **MAVLink over Wi-Fi**.
-2. Connect to the ESP32 AP or use its client connection. Stop real telemetry while testing.
+1. Save a short test routine and a coordinate sequence using either MAVLink source.
+2. For Wi-Fi, connect to the AP or client connection; for Bluetooth, connect BLE
+   in the console. Stop real telemetry while testing.
 3. In **Test current GPS**, enter `latitude,longitude,accuracyMeters`. Start with a
    coordinate outside the first point's radius and click **Send test GPS position**.
 4. Wait for fresh position status, then click **Start sequence**.
@@ -112,12 +168,14 @@ reset, then wait for new fixes before starting again.
    It resends the currently entered coordinate. **Stop sequence** stops the feed
    and output. Closing the page or losing updates causes stale-position shutdown.
 
-The ESP32 sends actual MAVLink 2 GPS_RAW_INT and GLOBAL_POSITION_INT packets to
+For the Wi-Fi source, the ESP32 sends actual MAVLink 2 GPS_RAW_INT and GLOBAL_POSITION_INT packets to
 its own Wi-Fi IP on the configured UDP port. They pass through the normal socket,
 CRC, fix-quality, coordinate, and mission handling. The test does not bypass the
 receiver or directly set a fix. Hardware UDP delivery still needs a bench check.
 USB/BLE/HTTP command equivalent: `GeoTestPosition:37.4219999,-122.0840575,1`.
 One command sends one datagram; repeat it within three seconds for a long test.
+For the Bluetooth source, the console generates the same messages and writes
+them to the binary GPS characteristic instead; no UDP command is used.
 
 ## Interface for XAG or another proprietary provider
 

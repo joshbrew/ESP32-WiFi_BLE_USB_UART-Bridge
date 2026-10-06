@@ -34,6 +34,7 @@ class TransportHub {
   void begin();
   void configureCommandSubmitter(CommandSubmitter submitter, void *context);
   void configureStateProvider(StateProvider provider, void *context);
+  void configureMavlinkReceiver(MavlinkReceiver receiver, void *context);
   void service();
 
   void setSppEnabled(bool enabled);
@@ -64,6 +65,7 @@ class TransportHub {
   void serviceUsbInput();
   void serviceSppInput();
   void serviceBleInput();
+  void serviceBleMavlinkInput();
   void serviceBleIdleSubmit();
   void serviceUartInput();
   void serviceOutput();
@@ -85,6 +87,7 @@ class TransportHub {
   void onBleConnected();
   void onBleDisconnected();
   void onBleWrite(const char *data, size_t length);
+  void onBleMavlinkWrite(const char *data, size_t length);
   void onBleNotificationsChanged(bool enabled);
 
   void fillOutputQueue(
@@ -105,6 +108,8 @@ class TransportHub {
   void *submitContext_;
   StateProvider stateProvider_;
   void *stateContext_;
+  MavlinkReceiver mavlinkReceiver_ = nullptr;
+  void *mavlinkContext_ = nullptr;
 
 #if APP_CLASSIC_BT_SPP_ENABLED
   BluetoothSerial serialBt_;
@@ -162,6 +167,9 @@ class TransportHub {
 
 #if APP_BLE_ENABLED
   ByteRingBuffer<512> bleInput_;
+  ByteRingBuffer<512> bleMavlinkInput_;
+  uint32_t bleMavlinkReceivedAt_ = 0;
+  bool bleMavlinkResetPending_ = false;
   portMUX_TYPE bleInputMux_;
   mutable portMUX_TYPE bleStateMux_;
   SemaphoreHandle_t bleNotifyMutex_;

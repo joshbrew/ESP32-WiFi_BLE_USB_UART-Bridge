@@ -42,6 +42,7 @@ void GeoMission::begin() {
 }
 void GeoMission::resetPosition() {
   havePosition_ = false; haveBootTime_ = false; fixType_ = 0;
+  bleStream_.reset(); sourceChangedAt_ = millis();
   if (positionQueue_) xQueueReset(positionQueue_);
 #if APP_WIFI_ENABLED
   udp_.stop(); udpReady_ = false;
@@ -182,9 +183,9 @@ bool GeoMission::handleCommand(const String &command, CommandSource source, cons
   if (work.equalsIgnoreCase("GeoResetPosition")) { resetPosition(); return true; }
   if (TextUtil::startsWithIgnoreCase(work, "GeoSource:")) {
     const String value = work.substring(10);
-    if (!value.equalsIgnoreCase("API") && !value.equalsIgnoreCase("MAVLINK")) {
-      report(EventLevel::ERROR, "use GeoSource:API or GeoSource:MAVLINK", source, requestId);
-    } else { plan_.source = value.equalsIgnoreCase("API") ? 1 : 0; saved_ = false; resetPosition(); }
+    if (!value.equalsIgnoreCase("API") && !value.equalsIgnoreCase("MAVLINK") && !value.equalsIgnoreCase("BLE")) {
+      report(EventLevel::ERROR, "use GeoSource:API, MAVLINK or BLE", source, requestId);
+    } else { plan_.source = value.equalsIgnoreCase("API") ? 1 : value.equalsIgnoreCase("BLE") ? 2 : 0; saved_ = false; resetPosition(); }
     return true;
   }
   if (work.equalsIgnoreCase("GeoClear")) { memset(&plan_, 0, sizeof(plan_)); plan_.magic = MAGIC; saved_ = false; next_ = 0; resetPosition(); return true; }
@@ -228,19 +229,32 @@ void GeoMission::pollMavlink() {
     const int length = udp_.read(bytes, sizeof(bytes)); if (length <= 0) continue;
     size_t offset = 0; MavlinkPosition::Message message{};
     while (MavlinkPosition::next(bytes, length, offset, message)) {
-      if (message.system != AppConfig::GEO_MAVLINK_SYSTEM_ID || message.component != AppConfig::GEO_MAVLINK_COMPONENT_ID) continue;
-      if (message.id == 24) {
-        fixType_ = message.fixType; gpsAt_ = millis();
-        mavlinkAccuracy_ = message.accuracyMm ? message.accuracyMm / 1000.0f : -1;
-        if (fixType_ < 3 || fixType_ > 6) havePosition_ = false;
-      } else if (fixType_ >= 3 && fixType_ <= 6 && millis() - gpsAt_ <= FIX_TIMEOUT_MS) {
-        if (haveBootTime_ && static_cast<int32_t>(message.bootMs - lastBootMs_) <= 0) continue;
-        lastBootMs_ = message.bootMs; haveBootTime_ = true;
-        position(message.latitudeE7 / 1e7, message.longitudeE7 / 1e7, mavlinkAccuracy_, 0);
-      }
+      consumeMavlink(message, millis());
     }
   }
 #endif
+}
+void GeoMission::consumeMavlink(const MavlinkPosition::Message &message, uint32_t receivedAt) {
+  if (message.system != AppConfig::GEO_MAVLINK_SYSTEM_ID || message.component != AppConfig::GEO_MAVLINK_COMPONENT_ID) return;
+  const uint32_t age = millis() - receivedAt;
+  if (age > FIX_TIMEOUT_MS) return;
+  if (message.id == 24) {
+    fixType_ = message.fixType; gpsAt_ = receivedAt;
+    mavlinkAccuracy_ = message.accuracyMm ? message.accuracyMm / 1000.0f : -1;
+    if (fixType_ < 3 || fixType_ > 6) havePosition_ = false;
+  } else if (fixType_ >= 3 && fixType_ <= 6 && millis() - gpsAt_ <= FIX_TIMEOUT_MS) {
+    if (haveBootTime_ && static_cast<int32_t>(message.bootMs - lastBootMs_) <= 0) return;
+    lastBootMs_ = message.bootMs; haveBootTime_ = true;
+    position(message.latitudeE7 / 1e7, message.longitudeE7 / 1e7, mavlinkAccuracy_, age);
+  }
+}
+void GeoMission::receiveBleMavlink(const uint8_t *data, size_t length, uint32_t receivedAt) {
+  if (plan_.source != 2) { bleStream_.reset(); return; }
+  if (!data) { resetPosition(); return; } // Disconnect/overflow invalidates the selected fix.
+  if (millis() - receivedAt > FIX_TIMEOUT_MS || static_cast<int32_t>(receivedAt - sourceChangedAt_) < 0) { bleStream_.reset(); return; }
+  MavlinkPosition::Message message{}; uint32_t messageAt = 0;
+  for (size_t i = 0; i < length; ++i)
+    if (bleStream_.push(data[i], receivedAt, millis(), message, messageAt)) consumeMavlink(message, messageAt);
 }
 void GeoMission::service() {
   InputFix fix{};
@@ -275,7 +289,7 @@ uint32_t GeoMission::checksum(const Plan &plan) const {
   return recordChecksum(&plan, offsetof(Plan, checksum));
 }
 bool GeoMission::validate(const Plan &plan) const {
-  if (plan.magic != MAGIC || plan.count > AppConfig::GEO_MAX_POINTS || plan.source > 1 || plan.checksum != checksum(plan)) return false;
+  if (plan.magic != MAGIC || plan.count > AppConfig::GEO_MAX_POINTS || plan.source > 2 || plan.checksum != checksum(plan)) return false;
   for (uint16_t i = 0; i < plan.count; ++i) {
     const Point &point = plan.points[i];
     if (!coordinates(point.latitude, point.longitude) || !isfinite(point.tolerance) || point.tolerance < 0.1 || point.tolerance > 1000 || point.routine[15] != '\0' || !point.routine[0]) return false;
@@ -312,7 +326,7 @@ bool GeoMission::save() {
 String GeoMission::stateJson(bool compact) const {
   char fields[256];
   snprintf(fields, sizeof(fields), "{\"active\":%s,\"saved\":%s,\"source\":\"%s\",\"next\":%u,\"count\":%u,\"fresh\":%s,\"running\":%s,\"capacity\":%u",
-    active_ ? "true" : "false", saved_ ? "true" : "false", plan_.source == 1 ? "API" : "MAVLINK",
+    active_ ? "true" : "false", saved_ ? "true" : "false", plan_.source == 1 ? "API" : plan_.source == 2 ? "BLE" : "MAVLINK",
     static_cast<unsigned>(next_), static_cast<unsigned>(plan_.count), fresh() ? "true" : "false", runningRoutine_ ? "true" : "false", static_cast<unsigned>(AppConfig::GEO_MAX_POINTS));
   String json(fields);
   if (!compact) {

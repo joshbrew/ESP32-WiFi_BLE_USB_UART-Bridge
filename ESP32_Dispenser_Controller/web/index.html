@@ -82,9 +82,9 @@
 
     <details class="panel">
       <summary>Coordinate-triggered routines</summary>
-      <p id="geoStatus" class="hint">Coordinate sequence is stopped. Feed MAVLink UDP or GeoPosition updates before starting.</p>
+      <p id="geoStatus" class="hint">Coordinate sequence is stopped. Feed drone positions before starting.</p>
       <label class="fieldLabel" for="geoSource">Drone position source</label>
-      <select id="geoSource"><option value="MAVLINK">MAVLink over Wi-Fi</option><option value="API">XAG / custom position bridge</option></select>
+      <select id="geoSource"><option value="MAVLINK">MAVLink over Wi-Fi</option><option value="BLE">MAVLink over Bluetooth</option><option value="API">XAG / custom position bridge</option></select>
       <label class="fieldLabel" for="geoPoints">Ordered points: latitude, longitude, radius in meters, saved routine name</label>
       <textarea id="geoPoints" rows="4" spellcheck="false" placeholder="37.4219999,-122.0840575,5,dots"></textarea>
       <div class="inlineCommands">
@@ -94,14 +94,16 @@
         <button data-command="GeoList">Show saved points</button>
       </div>
       <p class="hint">Start authorizes automatic arming at each next point. Its routine runs once when inside the radius, then the sequence advances. Position loss stops the sequence and output. Restart explicitly starts again at point 1.</p>
-      <p class="hint">MAVLink input: UDP port 14550, system/component 1/1, GPS_RAW_INT and GLOBAL_POSITION_INT. A custom bridge can POST latitude,longitude,accuracyMeters,ageMs as plain text to /api/position. Updates must stay fresh throughout the routine.</p>
+      <p class="hint">Bluetooth GPS works with a connected phone or GPS controller. Wi-Fi GPS works with a drone telemetry bridge. Updates must stay fresh throughout the routine.</p>
       <label class="fieldLabel" for="geoTestPosition">Test current GPS: latitude, longitude, accuracy in meters</label>
       <input id="geoTestPosition" placeholder="37.4219999,-122.0840575,1" spellcheck="false">
       <div class="inlineCommands">
         <button id="geoTestSend">Send test GPS position</button>
         <label class="hint"><input id="geoTestStream" type="checkbox"> Keep sending every second</label>
       </div>
-      <p class="hint">Select MAVLink and save the sequence first. Send a position before Start, then edit it to test entering a radius. Keep sending for long routines. Test positions can run an enabled sequence; Stop sequence ends the test feed and output.</p>
+      <p class="hint">Select a MAVLink source and save the sequence first. For Bluetooth, connect BLE too. Send a position before Start, then edit it to test entering a radius. Test positions can run an enabled sequence; Stop sequence ends the feed and output.</p>
+      <label class="hint"><input id="geoPhoneGps" type="checkbox"> Use this phone's GPS over Bluetooth</label>
+      <p class="hint">This uses the phone's location. For flight use, the position must come from the aircraft. Requires a browser with Bluetooth and location support, location permission, and fresh updates within 3 seconds.</p>
     </details>
 
     <section class="panel console">

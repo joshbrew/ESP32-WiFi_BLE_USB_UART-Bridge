@@ -134,6 +134,7 @@ void setup() {
 
   transports.configureCommandSubmitter(CommandDispatcher::commandThunk, &dispatcher);
   transports.configureStateProvider(CommandRouter::webStateThunk, &router);
+  transports.configureMavlinkReceiver(CommandRouter::mavlinkThunk, &router);
   webPortal.configure(
     CommandDispatcher::batchThunk,
     &dispatcher,

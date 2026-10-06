@@ -752,21 +752,15 @@ String RadioManager::stateJson() const {
 }
 
 String RadioManager::webStateJson() const {
-  String json;
-  json.reserve(420);
-  json = "{\"bootModeActive\":\"" + bootModeString(activeBootMode_) + "\"";
-  json += ",\"wifiCompiled\":" + TextUtil::jsonBool(AppConfig::ENABLE_WIFI);
-  json += ",\"bleCompiled\":" + TextUtil::jsonBool(AppConfig::ENABLE_BLE);
-  json += ",\"sppCompiled\":" + TextUtil::jsonBool(AppConfig::ENABLE_CLASSIC_BT_SPP);
-  json += ",\"wifiState\":\"" + TextUtil::jsonEscape(runtimeState()) + "\"";
-  json += ",\"ip\":\"" + TextUtil::jsonEscape(ipString()) + "\"";
-  json += ",\"wifiLRActive\":" + TextUtil::jsonBool(wifiLongRangeActive_);
-  json += ",\"bleRunning\":" + TextUtil::jsonBool(transports_.isBleRunning());
-  json += ",\"bleConnected\":" + TextUtil::jsonBool(transports_.isBleConnected());
-  json += ",\"sppRunning\":" + TextUtil::jsonBool(transports_.isSppRunning());
-  json += ",\"sppConnected\":" + TextUtil::jsonBool(transports_.isSppConnected());
-  json += "}";
-  return json;
+  char fields[512]; // These strings are bounded mode/state names and an IPv4 address.
+  snprintf(fields, sizeof(fields),
+    "{\"bootModeActive\":\"%s\",\"wifiCompiled\":%s,\"bleCompiled\":%s,\"sppCompiled\":%s,\"wifiState\":\"%s\",\"ip\":\"%s\","
+    "\"wifiLRActive\":%s,\"bleRunning\":%s,\"bleConnected\":%s,\"sppRunning\":%s,\"sppConnected\":%s}",
+    bootModeString(activeBootMode_).c_str(), AppConfig::ENABLE_WIFI ? "true" : "false", AppConfig::ENABLE_BLE ? "true" : "false",
+    AppConfig::ENABLE_CLASSIC_BT_SPP ? "true" : "false", TextUtil::jsonEscape(runtimeState()).c_str(), TextUtil::jsonEscape(ipString()).c_str(),
+    wifiLongRangeActive_ ? "true" : "false", transports_.isBleRunning() ? "true" : "false", transports_.isBleConnected() ? "true" : "false",
+    transports_.isSppRunning() ? "true" : "false", transports_.isSppConnected() ? "true" : "false");
+  return String(fields);
 }
 
 String RadioManager::activeBootModeText() const {

@@ -46,6 +46,7 @@ class CommandRouter {
   static String stateThunk(void *context);
   static String webStateThunk(void *context);
   static bool positionThunk(void *context, const String &body);
+  static void mavlinkThunk(void *context, const uint8_t *data, size_t length, uint32_t receivedAt);
 
  private:
   String normalize(String command) const;

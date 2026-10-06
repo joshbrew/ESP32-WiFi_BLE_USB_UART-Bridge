@@ -210,7 +210,7 @@ IDE tab. It contains the settings students are expected to change:
 ```
 
 See [saved routines and drone position](docs/COORDINATE_ROUTINES.md) for the
-initial-delay controls, Wi-Fi client setup, ordered coordinates, MAVLink input,
+initial-delay controls, Wi-Fi client setup, ordered coordinates, MAVLink input over Wi-Fi or Bluetooth,
 and the position API an XAG integration provider can connect to.
 
 The same tab groups the status LED pins, local access-point identity, and the

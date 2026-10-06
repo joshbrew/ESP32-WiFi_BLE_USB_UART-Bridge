@@ -6,6 +6,7 @@
 #include <esp_gap_bt_api.h>
 #endif
 #include <string.h>
+#include <stdio.h>
 
 #if APP_BLUETOOTH_ENABLED && (!defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED))
 #error Bluetooth is not enabled in this ESP32 build. Comment out the BLE/SPP build switches in src/config/AppConfig.h or select a Bluetooth-capable classic ESP32 target.
@@ -55,15 +56,17 @@ class TransportHub::BleServerCallbacks : public BLEServerCallbacks {
 
 class TransportHub::BleRxCallbacks : public BLECharacteristicCallbacks {
  public:
-  explicit BleRxCallbacks(TransportHub &owner) : owner_(owner) {}
+  explicit BleRxCallbacks(TransportHub &owner, bool mavlink = false) : owner_(owner), mavlink_(mavlink) {}
 
   void onWrite(BLECharacteristic *characteristic) override {
     auto value = characteristic->getValue();
-    owner_.onBleWrite(value.c_str(), value.length());
+    if (mavlink_) owner_.onBleMavlinkWrite(value.c_str(), value.length());
+    else owner_.onBleWrite(value.c_str(), value.length());
   }
 
  private:
   TransportHub &owner_;
+  bool mavlink_;
 };
 
 class TransportHub::BleTxDescriptorCallbacks : public BLEDescriptorCallbacks {
@@ -185,6 +188,10 @@ void TransportHub::configureStateProvider(StateProvider provider, void *context)
   stateContext_ = context;
 }
 
+void TransportHub::configureMavlinkReceiver(MavlinkReceiver receiver, void *context) {
+  mavlinkReceiver_ = receiver; mavlinkContext_ = context;
+}
+
 // ADD A NEW STREAM TRANSPORT by following the USB/SPP/BLE pattern: assemble
 // newline input, submit through the shared callback, and drain events by cursor.
 void TransportHub::service() {
@@ -263,6 +270,7 @@ void TransportHub::service() {
   }
 
   serviceBleInput();
+  serviceBleMavlinkInput();
   serviceBleIdleSubmit();
 
 #if APP_VERBOSE_COEX_HTTP_DIAGNOSTICS
@@ -542,40 +550,25 @@ String TransportHub::usbStatusText() const {
 }
 
 String TransportHub::stateJson() const {
-  String json = "{";
-  json += "\"usbName\":\"" + TextUtil::jsonEscape(AppConfig::USB_SERIAL_NAME) + "\"";
-  json += ",\"usbBaud\":" + String(AppConfig::USB_BAUD);
-  json += ",\"usbOsNameFirmwareConfigurable\":false";
-  json += ",\"sppCompiled\":" + TextUtil::jsonBool(AppConfig::ENABLE_CLASSIC_BT_SPP);
+  String json = "{\"usbName\":\"";
+  json += TextUtil::jsonEscape(AppConfig::USB_SERIAL_NAME); json += '"';
 #if APP_CLASSIC_BT_SPP_ENABLED
-  json += ",\"sppDesired\":" + TextUtil::jsonBool(sppDesired_);
-  json += ",\"sppInitialized\":" + TextUtil::jsonBool(sppInitialized_);
-  json += ",\"sppRunning\":" + TextUtil::jsonBool(sppRunning_);
-  json += ",\"sppConnected\":" + TextUtil::jsonBool(sppConnected_);
+  const bool sppDesired = sppDesired_, sppInitialized = sppInitialized_, sppRunning = sppRunning_, sppConnected = sppConnected_;
 #else
-  json += ",\"sppDesired\":false";
-  json += ",\"sppInitialized\":false";
-  json += ",\"sppRunning\":false";
-  json += ",\"sppConnected\":false";
+  const bool sppDesired = false, sppInitialized = false, sppRunning = false, sppConnected = false;
 #endif
-  json += ",\"bleCompiled\":" + TextUtil::jsonBool(AppConfig::ENABLE_BLE);
-  json += ",\"bleDesired\":" + TextUtil::jsonBool(AppConfig::ENABLE_BLE && bleDesired_);
-  json += ",\"bleInitialized\":" + TextUtil::jsonBool(isBleInitialized());
-  json += ",\"bleStandalone\":" + TextUtil::jsonBool(AppConfig::ENABLE_BLE && bleStandalone_);
-  json += ",\"bleRunning\":" + TextUtil::jsonBool(isBleRunning());
-  json += ",\"bleConnected\":" + TextUtil::jsonBool(isBleConnected());
-  json += ",\"bleNotifications\":" + TextUtil::jsonBool(isBleOutputReady());
-  json += ",\"bleDormant\":" + TextUtil::jsonBool(isBleDormant());
-  json += ",\"bleDormancyMode\":\"advertising-only\"";
-  json += ",\"bleHeapReleasedWhileDormant\":false";
-#if APP_CLASSIC_BT_SPP_ENABLED
-  json += ",\"bluetoothStackWarm\":" + TextUtil::jsonBool(sppInitialized_ || bleInitialized_);
-#else
-  json += ",\"bluetoothStackWarm\":" + TextUtil::jsonBool(bleInitialized_);
-#endif
-  json += ",\"uartRunning\":" + TextUtil::jsonBool(uartRunning_);
-  json += ",\"uartBaud\":" + String(AppConfig::AUX_UART_BAUD);
-  json += "}";
+  char fields[768];
+  snprintf(fields, sizeof(fields),
+    ",\"usbBaud\":%lu,\"usbOsNameFirmwareConfigurable\":false,\"sppCompiled\":%s,\"sppDesired\":%s,\"sppInitialized\":%s,\"sppRunning\":%s,\"sppConnected\":%s,"
+    "\"bleCompiled\":%s,\"bleDesired\":%s,\"bleInitialized\":%s,\"bleStandalone\":%s,\"bleRunning\":%s,\"bleConnected\":%s,\"bleNotifications\":%s,\"bleDormant\":%s,"
+    "\"bleDormancyMode\":\"advertising-only\",\"bleHeapReleasedWhileDormant\":false,\"bluetoothStackWarm\":%s,\"uartRunning\":%s,\"uartBaud\":%lu}",
+    static_cast<unsigned long>(AppConfig::USB_BAUD), AppConfig::ENABLE_CLASSIC_BT_SPP ? "true" : "false",
+    sppDesired ? "true" : "false", sppInitialized ? "true" : "false", sppRunning ? "true" : "false", sppConnected ? "true" : "false",
+    AppConfig::ENABLE_BLE ? "true" : "false", AppConfig::ENABLE_BLE && bleDesired_ ? "true" : "false", isBleInitialized() ? "true" : "false",
+    AppConfig::ENABLE_BLE && bleStandalone_ ? "true" : "false", isBleRunning() ? "true" : "false", isBleConnected() ? "true" : "false",
+    isBleOutputReady() ? "true" : "false", isBleDormant() ? "true" : "false", sppInitialized || bleInitialized_ ? "true" : "false",
+    uartRunning_ ? "true" : "false", static_cast<unsigned long>(AppConfig::AUX_UART_BAUD));
+  json += fields;
   return json;
 }
 
@@ -676,6 +669,22 @@ void TransportHub::serviceBleInput() {
   if (count > 0 && bleAssembler_.hasPending()) {
     bleLastInputAtMs_ = millis();
     bleIdleSubmitPending_ = true;
+  }
+#endif
+}
+
+void TransportHub::serviceBleMavlinkInput() {
+#if APP_BLE_ENABLED
+  char buffer[AppConfig::BLE_INPUT_READ_BUDGET];
+  portENTER_CRITICAL(&bleInputMux_);
+  const bool reset = bleMavlinkResetPending_; bleMavlinkResetPending_ = false;
+  if (reset) bleMavlinkInput_.clear();
+  const uint32_t receivedAt = bleMavlinkReceivedAt_;
+  const size_t count = bleMavlinkInput_.pop(buffer, sizeof(buffer));
+  portEXIT_CRITICAL(&bleInputMux_);
+  if (mavlinkReceiver_) {
+    if (reset) mavlinkReceiver_(mavlinkContext_, nullptr, 0, millis());
+    if (count) mavlinkReceiver_(mavlinkContext_, reinterpret_cast<const uint8_t *>(buffer), count, receivedAt);
   }
 #endif
 }
@@ -1079,8 +1088,10 @@ bool TransportHub::initializeBleStack() {
     AppConfig::BLE_UART_RX_UUID,
     BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR
   );
+  BLECharacteristic *gpsRx = bleService_->createCharacteristic(AppConfig::BLE_MAVLINK_RX_UUID,
+    BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
   printBluetoothCheckpoint("after BLE characteristic allocation");
-  if (bleTx_ == nullptr || bleRx_ == nullptr) {
+  if (bleTx_ == nullptr || bleRx_ == nullptr || gpsRx == nullptr) {
     events_.publish(
       EventLevel::ERROR,
       "BLE characteristic allocation failed",
@@ -1094,6 +1105,7 @@ bool TransportHub::initializeBleStack() {
   bleTx_->addDescriptor(bleTxCccd_);
   bleTx_->setValue("ESP32 command transport ready\n");
   bleRx_->setCallbacks(new BleRxCallbacks(*this));
+  gpsRx->setCallbacks(new BleRxCallbacks(*this, true));
   bleService_->start();
   printBluetoothCheckpoint("after BLE service start");
 
@@ -1133,6 +1145,7 @@ void TransportHub::startBle() {
   BLEDevice::startAdvertising();
   portENTER_CRITICAL(&bleInputMux_);
   bleInput_.clear();
+  bleMavlinkInput_.clear(); bleMavlinkResetPending_ = true;
   portEXIT_CRITICAL(&bleInputMux_);
   bleAssembler_.clear();
   bleIdleSubmitPending_ = false;
@@ -1177,6 +1190,7 @@ void TransportHub::stopBle() {
   portEXIT_CRITICAL(&bleStateMux_);
   portENTER_CRITICAL(&bleInputMux_);
   bleInput_.clear();
+  bleMavlinkInput_.clear(); bleMavlinkResetPending_ = true;
   portEXIT_CRITICAL(&bleInputMux_);
   bleAssembler_.clear();
   bleIdleSubmitPending_ = false;
@@ -1222,6 +1236,9 @@ void TransportHub::onBleDisconnected() {
   bleConnectionEvent_ = -1;
   bleRestartPending_ = true;
   portEXIT_CRITICAL(&bleStateMux_);
+  portENTER_CRITICAL(&bleInputMux_);
+  bleMavlinkInput_.clear(); bleMavlinkResetPending_ = true;
+  portEXIT_CRITICAL(&bleInputMux_);
   if (bleNotifyMutex_ != nullptr) {
     xSemaphoreGive(bleNotifyMutex_);
   }
@@ -1256,6 +1273,15 @@ void TransportHub::onBleWrite(const char *data, size_t length) {
     portEXIT_CRITICAL(&bleStateMux_);
   }
 }
+void TransportHub::onBleMavlinkWrite(const char *data, size_t length) {
+  if (!data || !length || !isBleConnected()) return;
+  portENTER_CRITICAL(&bleInputMux_);
+  if (!bleMavlinkInput_.size()) bleMavlinkReceivedAt_ = millis();
+  if (!bleMavlinkInput_.push(data, length)) {
+    bleMavlinkInput_.clear(); bleMavlinkResetPending_ = true;
+  }
+  portEXIT_CRITICAL(&bleInputMux_);
+}
 
 #else
 bool TransportHub::initializeBleStack() { return false; }
@@ -1268,6 +1294,7 @@ void TransportHub::onBleWrite(const char *data, size_t length) {
   (void)data;
   (void)length;
 }
+void TransportHub::onBleMavlinkWrite(const char *data, size_t length) { (void)data; (void)length; }
 #endif
 
 void TransportHub::fillOutputQueue(
