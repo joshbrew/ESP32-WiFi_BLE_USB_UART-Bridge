@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 
-// Receive-only subset of MAVLink common: GPS_RAW_INT (24) and
+// Subset of MAVLink common: GPS_RAW_INT (24) and
 // GLOBAL_POSITION_INT (33). Field order/CRC_EXTRA follow mavlink/c_library_v2.
 // Signed packets are rejected: this adapter does not verify MAVLink signatures.
 namespace MavlinkPosition {
@@ -24,6 +24,14 @@ inline uint16_t accumulate(uint16_t crc, uint8_t byte) {
 inline uint32_t read32(const uint8_t *data) {
   return static_cast<uint32_t>(data[0]) | (static_cast<uint32_t>(data[1]) << 8) |
     (static_cast<uint32_t>(data[2]) << 16) | (static_cast<uint32_t>(data[3]) << 24);
+}
+inline void write32(uint8_t *data, uint32_t value) {
+  for (uint8_t i = 0; i < 4; ++i) data[i] = value >> (8 * i);
+}
+inline void finishFrame(uint8_t *frame, size_t crcOffset, uint8_t extra) {
+  uint16_t crc = 0xFFFF;
+  for (size_t i = 1; i < crcOffset; ++i) crc = accumulate(crc, frame[i]);
+  crc = accumulate(crc, extra); frame[crcOffset] = crc; frame[crcOffset + 1] = crc >> 8;
 }
 inline bool next(const uint8_t *bytes, size_t length, size_t &offset, Message &message) {
   while (offset < length) {

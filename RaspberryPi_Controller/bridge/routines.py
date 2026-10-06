@@ -1,6 +1,7 @@
 import copy
 import re
 import time
+import math
 from .config import UINT32_MAX
 
 
@@ -58,7 +59,7 @@ class Routines:
     def validate(self, record):
         if not isinstance(record, dict) or set(record) != {"steps", "repeats"}:
             raise ValueError("invalid routine record")
-        if type(record["repeats"]) is not int or not 1 <= record["repeats"] <= UINT32_MAX:
+        if type(record["repeats"]) is not int or not 0 <= record["repeats"] <= UINT32_MAX:
             raise ValueError("routine repeat count must fit unsigned 32-bit")
         if not isinstance(record["steps"], list) or not 1 <= len(record["steps"]) <= 10:
             raise ValueError("routine must contain 1-10 steps")
@@ -86,6 +87,8 @@ class Routines:
             if not state["armed"] or state["dispensing"] or state["faulted"]:
                 raise ValueError("routine requires armed, idle, healthy dispenser")
             duration = self.estimate_ms(record)
+            if not record["repeats"] and self.dispenser.settings["armTimeoutMs"]:
+                raise ValueError("continuous routine requires disabled arm expiry")
             if self.dispenser.settings["armTimeoutMs"] and duration > state["armRemainingMs"]:
                 raise ValueError("routine exceeds remaining arm window (including 1000 ms service margin)")
         self.running = copy.deepcopy(record)
@@ -109,7 +112,7 @@ class Routines:
                     if self.dispenser.settings["maxPulseMs"] and pulse > self.dispenser.settings["maxPulseMs"]:
                         raise ValueError("routine pulse exceeds active payload maximum")
                     cycle += pulse
-        return once + cycle * record["repeats"] + 1000
+        return once + cycle * record["repeats"] + 1000 if record["repeats"] else math.inf
 
     def stop(self, reason="stopped"):
         self.running = None
@@ -135,8 +138,8 @@ class Routines:
             if self.index == len(steps):
                 if state["dispensing"]:
                     return  # Allow a trailing pulse to finish in full.
-                self.repeat += 1
-                if self.repeat >= self.running["repeats"]:
+                self.repeat = self.repeat + 1 if self.running["repeats"] else min(self.repeat + 1, UINT32_MAX - 1)
+                if self.running["repeats"] and self.repeat >= self.running["repeats"]:
                     self.stop("complete")
                     self.publish("[DONE] routine complete", self.source, self.request_id, "status")
                     return
@@ -173,6 +176,8 @@ class Routines:
     def state(self):
         return dict(active=bool(self.running), name=getattr(self, "name", "") if self.running else "",
                     step=getattr(self, "index", 0), repeat=getattr(self, "repeat", 0),
+                    repeats=self.running["repeats"] if self.running else 0,
+                    continuous=bool(self.running) and self.running["repeats"] == 0,
                     delayRemainingMs=max(0, int(((self.wait_until or self.clock()) - self.clock()) * 1000))
                       if self.running and self.index < len(self.running["steps"]) and self.running["steps"][self.index].startswith("START_WAIT:") else 0,
                     lastResult=self.last_result, stored=len(self.library))

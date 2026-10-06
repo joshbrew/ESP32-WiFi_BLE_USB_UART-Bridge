@@ -12,9 +12,15 @@ counts and timed steps, timer rollover, no total-runtime cap, migration of
 version-2 saved routines and corrupt-record rejection, 256 GPS points saved,
 reloaded, and executed in order, legacy 12-point plan migration, ordered coordinates,
 accuracy, fresh/invalid/stale/queued fixes, and a single-slot position mailbox.
+Continuous routines are checked for persistence, an initial delay once,
+repeated on/off cycling, and stopping during the delay, pulse, and gap.
 It also checks the production MAVLink 1/2 parser against frames produced using
 an independent bitwise CRC, including truncated/invalid/signed packets and
 MAVLink 2 zero-trimmed payloads.
+Manual GPS tests send actual generated frames through a mocked UDP socket into
+the production receiver. They independently check CRCs and fields, AP/client
+operation, outside/inside-radius triggering, a refreshed four-second delay,
+stale test-feed shutdown, and invalid position rejection.
 
 From the repository root with a C++17 compiler:
 

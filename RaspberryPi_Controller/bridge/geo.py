@@ -5,7 +5,7 @@ import json
 import math
 import re
 
-from .mavlink import positions
+from .mavlink import positions, test_position
 from .routines import name_key, number
 from .store import Store
 
@@ -31,7 +31,7 @@ def point(spec):
 
 
 class GeoMission:
-    COMMANDS = {"GEOCLEAR", "GEOSOURCE", "GEOADD", "GEOSAVE", "GEOLOAD", "GEOLIST", "GEOSTATUS", "GEOSTART", "GEOSTOP", "GEORESETPOSITION", "GEOPOSITION"}
+    COMMANDS = {"GEOCLEAR", "GEOSOURCE", "GEOADD", "GEOSAVE", "GEOLOAD", "GEOLIST", "GEOSTATUS", "GEOSTART", "GEOSTOP", "GEORESETPOSITION", "GEOPOSITION", "GEOTESTPOSITION"}
 
     def __init__(self, controller):
         self.controller, self.clock = controller, controller.clock
@@ -64,6 +64,29 @@ class GeoMission:
         self.guard_invalid = False
         self.gps = None
         self.boot_ms = None
+        self.test_boot_ms = None
+
+    def send_test_position(self, body):
+        if self.plan["source"] != "MAVLINK" or not self.controller.radio.wifi_enabled:
+            raise ValueError("test GPS needs MAVLink source and enabled Wi-Fi")
+        fields = body.split(",")
+        if len(body.encode()) > 128 or len(fields) != 3:
+            raise ValueError("test GPS needs latitude,longitude,accuracyMeters")
+        lat, lon = decimal(fields[0], -90, 90), decimal(fields[1], -180, 180)
+        accuracy = decimal(fields[2], -1, 100000)
+        if -1 < accuracy < 0: raise ValueError("unknown accuracy must be -1")
+        if self.transport is None or self.transport.is_closing():
+            raise ValueError("test GPS needs an active UDP receiver")
+        base = self.boot_ms if self.boot_ms is not None else int(self.clock() * 1000) & 0xffffffff
+        if self.test_boot_ms is not None and 0 <= (self.test_boot_ms - base) % (1 << 32) < (1 << 31):
+            base = self.test_boot_ms
+        self.test_boot_ms = (base + 1) & 0xffffffff
+        config = self.controller.config
+        packet = test_position(lat, lon, accuracy, self.test_boot_ms, config["geo_system_id"], config["geo_component_id"])
+        address = self.transport.get_extra_info("sockname")
+        host = "127.0.0.1" if address[0] == "0.0.0.0" else "::1" if address[0] == "::" else address[0]
+        # Only the ordinary CRC/ID/fix-quality UDP receiver may publish the fix.
+        self.transport.sendto(packet, (host, address[1]))
 
     def fresh(self):
         # Read-only immutable snapshots also used by the dispenser watchdog.
@@ -192,6 +215,7 @@ class GeoMission:
     def handle(self, command, value):
         if command not in self.COMMANDS: return False
         if command == "GEOPOSITION": self.submit_position(value)
+        elif command == "GEOTESTPOSITION": self.send_test_position(value)
         elif command == "GEOSTART": self.start()
         elif command == "GEOSTOP": self.controller.stop_all("coordinate sequence stopped")
         elif command not in {"GEOSTATUS", "GEOLIST"}:
@@ -225,7 +249,8 @@ class GeoMission:
         result = dict(active=self.active, saved=self.saved, source=self.plan["source"], next=self.next,
                       count=len(self.plan["points"]), fresh=self.fresh(), running=self.running, result=self.result,
                       latitude=fix[0] if fix else None, longitude=fix[1] if fix else None, accuracy=fix[2] if fix else -1,
-                      capacity=MAX_POINTS, udpPort=self.controller.config["geo_udp_port"], udpError=self.udp_error)
+                      capacity=MAX_POINTS, udpPort=self.controller.config["geo_udp_port"], udpError=self.udp_error,
+                      udpReady=bool(self.transport and not self.transport.is_closing()))
         if include_points: result["points"] = copy.deepcopy(self.plan["points"])
         if fix:
             result["ageMs"] = round((self.clock() - fix[3] + fix[4]) * 1000)

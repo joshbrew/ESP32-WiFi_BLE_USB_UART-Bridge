@@ -152,8 +152,8 @@ PayloadProfileShow:fine
 ```
 
 `PayloadProfileSave` snapshots the current settings and selects that profile for
-future boots. Runtime limits may be smaller than the `QuickConfig.h` ceilings,
-never larger. Profiles do not contain `Arm`, output state, or routines.
+future boots. Pulse and arming limits are optional; zero disables them.
+Profiles do not contain `Arm`, output state, or routines.
 
 ## Saved timing routines
 
@@ -170,6 +170,12 @@ RoutineAdd:dots:WAIT:800
 RoutineRepeat:dots:6
 RoutineSave:dots
 ```
+
+The console's **Initial delay ms** waits once before the first pulse. Check
+**Repeat until stopped** to cycle the pulse and gap continuously after that
+delay. Both settings are saved with the named routine. Its Run button starts
+the saved settings; **Stop routine** stops the output and cancels further cycles.
+The command equivalent is `RoutineRepeat:dots:FOREVER` followed by `RoutineSave:dots`.
 
 Run it:
 

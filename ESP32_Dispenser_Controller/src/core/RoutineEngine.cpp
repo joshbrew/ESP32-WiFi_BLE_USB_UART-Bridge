@@ -238,18 +238,17 @@ bool RoutineEngine::handleCommand(
     name.trim();
     const int slot = findRoutine(name);
     uint32_t repeats = 0;
+    const String repeatSpec = trimmedAfter(remainder, separator + 1);
+    const bool continuous = repeatSpec.equalsIgnoreCase("FOREVER");
     if (slot < 0) {
       error(source, requestId, "unknown routine " + name);
     } else if (active_ && activeSlot_ == static_cast<uint8_t>(slot)) {
       error(source, requestId, "stop the active routine before editing it");
-    } else if (
-      !TextUtil::parseUnsigned32(remainder.substring(separator + 1), repeats) ||
-      repeats < 1
-    ) {
+    } else if (!continuous && (!TextUtil::parseUnsigned32(repeatSpec, repeats) || repeats < 1)) {
       error(
         source,
         requestId,
-        "repeat count must be a positive 32-bit integer"
+        "repeat count must be positive or FOREVER"
       );
     } else {
       routines_[slot].repeatCount = repeats;
@@ -331,8 +330,9 @@ void RoutineEngine::service() {
     if (addon_.isBusy() || addon_.hasActiveOutput()) {
       return;
     }
-    if (repeatIndex_ + 1 < routine.repeatCount) {
-      repeatIndex_++;
+    if (!routine.repeatCount || repeatIndex_ + 1 < routine.repeatCount) {
+      // Saturate the displayed counter so START_WAIT never runs again on wrap.
+      if (repeatIndex_ < UINT32_MAX - 1) repeatIndex_++;
       stepIndex_ = 0;
       waiting_ = false;
       publish(
@@ -516,15 +516,18 @@ String RoutineEngine::statusText() const {
       stored++;
     }
   }
-  String text = "routines stored=" + String(stored) + "/" + String(AppConfig::ROUTINE_MAX_COUNT);
-  text += " active=" + TextUtil::boolWord(active_);
+  char fields[192];
+  snprintf(fields, sizeof(fields), "routines stored=%u/%u active=%s", static_cast<unsigned>(stored),
+    static_cast<unsigned>(AppConfig::ROUTINE_MAX_COUNT), active_ ? "on" : "off");
+  String text(fields);
   if (active_) {
-    text += " name=" + String(routines_[activeSlot_].name);
-    text += " step=" + String(stepIndex_ + 1) + "/" + String(routines_[activeSlot_].count);
-    text += " repeat=" + String(repeatIndex_ + 1) + "/" + String(routines_[activeSlot_].repeatCount);
-    text += " elapsedMs=" + String(millis() - runStartedAtMs_);
+    snprintf(fields, sizeof(fields), " name=%s step=%u/%u repeat=%u/%u elapsedMs=%lu", routines_[activeSlot_].name,
+      static_cast<unsigned>(stepIndex_ + 1), static_cast<unsigned>(routines_[activeSlot_].count),
+      static_cast<unsigned>(repeatIndex_ + 1), static_cast<unsigned>(routines_[activeSlot_].repeatCount),
+      static_cast<unsigned long>(millis() - runStartedAtMs_));
+    text += fields;
   }
-  text += " last=" + lastResult_;
+  text += " last="; text += lastResult_;
   return text;
 }
 
@@ -587,7 +590,6 @@ bool RoutineEngine::validStoredRoutine(const StoredRoutine &routine) const {
     routine.used != 1 ||
     routine.count == 0 ||
     routine.count > AppConfig::ROUTINE_MAX_STEPS ||
-    routine.repeatCount == 0 ||
     routine.name[AppConfig::ROUTINE_NAME_BYTES] != '\0' ||
     !validName(String(routine.name)) ||
     routine.checksum != checksum(routine)
@@ -860,7 +862,7 @@ bool RoutineEngine::startRoutine(
     }
   }
   const uint64_t overhead = onceMs + 1000; // Service/queue margin.
-  const uint64_t duration = cycleMs && routine.repeatCount > (UINT64_MAX - overhead) / cycleMs
+  const uint64_t duration = !routine.repeatCount || (cycleMs && routine.repeatCount > (UINT64_MAX - overhead) / cycleMs)
     ? UINT64_MAX : overhead + cycleMs * routine.repeatCount;
   if (!addon_.canRunRoutineFor(duration, readiness)) {
     error(source, requestId, "routine exceeds optional arm limit: " + readiness); return false;

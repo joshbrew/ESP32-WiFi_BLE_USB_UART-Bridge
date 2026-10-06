@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <stddef.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "../../config/AppConfig.h"
 #include "../../util/TextUtil.h"
@@ -1425,24 +1426,14 @@ uint32_t DispenserAddon::remainingArmMs(uint32_t now) const {
 
 String DispenserAddon::statusText() const {
   const uint32_t now = millis();
-  String text = "dispenser=";
-  text += faulted_ ? "FAULT" : dispensing_ ? "DISPENSING" : armed_ ? "ARMED" : "DISARMED";
-  text += " GPIO" + String(outputPin_);
-  text += " activeHigh=" + TextUtil::boolWord(activeHigh_);
-  text += " profile=" + currentProfileName();
-  text += " defaultMs=" + String(defaultPulseMs_);
-  text += " maxMs=" + String(maxPulseMs_);
-  text += " armMs=" + String(armTimeoutMs_);
-  text += " pulseLeftMs=" + String(remainingDispenseMs(now));
-  text += " armLeftMs=" + String(remainingArmMs(now));
-  text += " interlock=" + String(interlockOpen() ? "open" : "closed");
-  String reason = lastReason_;
-  if (reason.length() > 24) {
-    reason.remove(24);
-    reason += "...";
-  }
-  text += " reason=" + reason;
-  return text;
+  char fields[384];
+  snprintf(fields, sizeof(fields), "dispenser=%s GPIO%d activeHigh=%s profile=%s defaultMs=%lu maxMs=%lu armMs=%lu pulseLeftMs=%lu armLeftMs=%lu interlock=%s reason=%.24s%s",
+    faulted_ ? "FAULT" : dispensing_ ? "DISPENSING" : armed_ ? "ARMED" : "DISARMED", static_cast<int>(outputPin_),
+    activeHigh_ ? "on" : "off", currentProfileName().c_str(), static_cast<unsigned long>(defaultPulseMs_),
+    static_cast<unsigned long>(maxPulseMs_), static_cast<unsigned long>(armTimeoutMs_),
+    static_cast<unsigned long>(remainingDispenseMs(now)), static_cast<unsigned long>(remainingArmMs(now)),
+    interlockOpen() ? "open" : "closed", lastReason_.c_str(), lastReason_.length() > 24 ? "..." : "");
+  return String(fields);
 }
 
 void DispenserAddon::publish(

@@ -22,11 +22,12 @@ PayloadProfileList PayloadProfileShow:name PayloadProfileSave:name PayloadProfil
 PayloadProfileDelete:name PayloadProfileEraseAll
 RoutineCreate:name RoutineAdd:name:DISPENSE:ms RoutineAdd:name:WAIT:ms
 RoutineAdd:name:START_WAIT:ms
-RoutineAdd:name:WAIT_IDLE RoutineAdd:name:COMMAND:Dispense:ms RoutineRepeat:name:count
+RoutineAdd:name:WAIT_IDLE RoutineAdd:name:COMMAND:Dispense:ms RoutineRepeat:name:count|FOREVER
 RoutineSave:name RoutineRun:name RoutineStop RoutineStatus RoutineList RoutineShow:name RoutineErase:name
 Send:payload SendBLE:payload SendWiFi:payload SendUSB:payload SendSerial:payload SendUART:payload
 SendSPP:payload GeoSource:API|MAVLINK GeoClear GeoAdd:lat,lon,radius,routine GeoSave GeoLoad
 GeoStart GeoStop GeoStatus GeoList GeoResetPosition GeoPosition:lat,lon,accuracy,ageMs
+GeoTestPosition:lat,lon,accuracy
 SelfTestStart SelfTestStatus SelfTestClear
 ProductionMode DebugMode BootModeStatus Reboot IndicatorStatus IndicatorTest IndicatorConnectionTest IndicatorActivityTest
 SelfTestResume SelfTestAbort ModeWiFi ModeWiFiBLE ModeWiFiBLEP ModeBLE ModeBTSerial ModeUSB RadioBoot:profile
@@ -222,7 +223,7 @@ class Controller:
         safe_commands = {"PING", "HELP", "STATUS", "CONFIGREAD", "BOOTMODESTATUS", "RADIOSTATUS", "USBSTATUS", "HEAPSTATUS", "BLESTATUS", "SENDSTATUS", "INDICATORSTATUS", "ROUTINESTATUS", "DISPENSERSTATUS", "PAYLOADSTATUS", "SELFTESTSTATUS", "SELFTESTABORT", "STOPALL", "DISARM", "ROUTINESTOP", "COILSOFF", "STOP", "GEOSTATUS", "GEOLIST", "GEOSTOP", "GEOPOSITION", "WIFISTATUS"}
         if self.features.busy and cmd not in safe_commands:
             raise ValueError("administrative operation active; actuation/configuration blocked")
-        if self.geo.active and cmd not in safe_commands and cmd not in {"ROUTINELIST", "ROUTINESHOW", "HELP", "DISPENSESTOP", "DISPENSEROFF", "DISPENSERDISARM"} and line.upper() != "GPIO26:OFF":
+        if self.geo.active and cmd not in safe_commands and cmd not in {"GEOTESTPOSITION", "ROUTINELIST", "ROUTINESHOW", "HELP", "DISPENSESTOP", "DISPENSEROFF", "DISPENSERDISARM"} and line.upper() != "GPIO26:OFF":
             raise ValueError("stop coordinate sequence before manual actuation or configuration")
         if cmd == "WIFILR" or (cmd in {"WIFIMODE", "RADIOBOOT"} and value.upper() == "LRONLY"):
             raise ValueError("ESP32 proprietary LR is unavailable on Pi; use an ESP32 LR relay through BLE or serial")
@@ -352,7 +353,7 @@ class Controller:
                 raise ValueError("START_WAIT must be the first step")
             steps.append(parsed)
         elif cmd == "ROUTINEREPEAT":
-            self.routines.library[key]["repeats"] = number(spec)
+            self.routines.library[key]["repeats"] = 0 if spec.strip().upper() == "FOREVER" else number(spec)
         elif cmd == "ROUTINESAVE":
             record = self.routines.library[key]
             self.routines.validate(record)

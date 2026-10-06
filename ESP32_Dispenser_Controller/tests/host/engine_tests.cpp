@@ -99,6 +99,29 @@ void arbitraryRoutineTests() {
   record[9]^=1;RoutineEngine corrupted(events,payload);corrupted.begin();assert(!corrupted.hasSaved("legacy"));
   std::cout<<"PASS 300 actual pulses, 32-bit repeats/timers, rollover, long wait/stop, invalid counts, version-2 migration and checksum rejection\n";
 }
+void continuousRoutineTests() {
+  Preferences::records.clear();testNow=0;EventBus events;Payload payload;RoutineEngine engine(events,payload);
+  engine.begin();engine.configureSubmitter(submit,&payload);preset(engine,"loop",50,5,1,5);
+  command(engine,"RoutineRepeat:loop:FOREVER");command(engine,"RoutineSave:loop");
+  RoutineEngine reload(events,payload);reload.begin();reload.configureSubmitter(submit,&payload);
+  assert(reload.hasSaved("loop")&&reload.stateJson(true).value.find(",0,true,")!=std::string::npos);
+  assert(reload.runNamed("loop",CommandSource::USB,"test"));
+  for(testNow=0;testNow<600;++testNow){payload.service();reload.service();}
+  assert(reload.isActive()&&payload.starts.size()>30&&payload.starts[0]>=50&&payload.starts[0]<60);
+  for(size_t i=1;i<payload.starts.size();++i)assert(payload.starts[i]-payload.starts[i-1]>=10&&payload.starts[i]-payload.starts[i-1]<25);
+  // Stop while on, then verify no later pulse appears.
+  while(!payload.output){++testNow;payload.service();reload.service();}
+  reload.stop(CommandSource::USB,"test","operator stop");const auto count=payload.starts.size();
+  testNow+=1000;payload.service();reload.service();assert(!reload.isActive()&&!payload.output&&payload.starts.size()==count);
+  payload.armed=true;payload.window=1000;assert(!reload.runNamed("loop",CommandSource::USB,"test"));
+  payload.window=0;assert(reload.runNamed("loop",CommandSource::USB,"test"));reload.service();
+  reload.stop(CommandSource::USB,"test","stop initial delay");testNow+=100;reload.service();assert(payload.starts.size()==count);
+  payload.armed=true;assert(reload.runNamed("loop",CommandSource::USB,"test"));reload.service();
+  testNow+=50;reload.service();++testNow;reload.service();assert(payload.output);
+  testNow+=5;payload.service();reload.service();assert(!payload.output&&reload.isActive());
+  reload.stop(CommandSource::USB,"test","stop gap");testNow+=100;reload.service();assert(!reload.isActive()&&!payload.output);
+  std::cout<<"PASS continuous saved reload, one-time delay, recurring on/off, stop during pulse/delay/gap, optional arming limit\n";
+}
 void geoTests() {
   Preferences::records.clear();testNow=10;EventBus events;Payload payload;RoutineEngine engine(events,payload);
   engine.begin();engine.configureSubmitter(submit,&payload);preset(engine,"dots",100,20);
@@ -214,4 +237,35 @@ void mavlinkMissionTests() {
   engine.stop(CommandSource::INTERNAL,"test","invalid fix");WiFi.statusValue=0;
   std::cout<<"PASS MAVLink mission timestamps, reorder/duplicate rejection after timeout, source reboot/reset, lost 3D fix\n";
 }
-int main(){timingTests();arbitraryRoutineTests();geoTests();expandedGeoTests();mavlinkTests();mavlinkMissionTests();}
+void udpSelfTestTests() {
+  Preferences::records.clear();testDatagrams.clear();testNow=10;EventBus events;Payload payload;RoutineEngine engine(events,payload);
+  engine.begin();engine.configureSubmitter(submit,&payload);preset(engine,"dots",4000,20,1,0);
+  GeoMission geo(events,payload,engine);geo.begin();command(geo,"GeoAdd:37,-122,5,dots");command(geo,"GeoSave");
+  WiFi.statusValue=0;WiFi.modeValue=WIFI_AP;
+  command(geo,"GeoTestPosition:37.001,-122,1.25");
+  assert(geo.stateJson(true).value.find("\"fresh\":false")!=std::string::npos&&testDatagrams.size()==1);
+  const auto packet=testDatagrams.front();assert(packet.size()==90);
+  // Check both packet CRCs independently of the production accumulator.
+  for(size_t start:{size_t(0),size_t(50)}) {
+    const size_t end=start+(start?38:48);uint16_t crc=0xFFFF;
+    for(size_t i=start+1;i<=end;++i){crc^=i==end?(start?104:24):packet[i];for(unsigned bit=0;bit<8;++bit)crc=(crc>>1)^((crc&1)?0x8408:0);}
+    assert(crc==(packet[end]|(static_cast<uint16_t>(packet[end+1])<<8)));
+  }
+  MavlinkPosition::Message message{};size_t offset=0;
+  assert(MavlinkPosition::next(packet.data(),packet.size(),offset,message)&&message.id==24&&message.fixType==3&&message.accuracyMm==1250);
+  assert(MavlinkPosition::next(packet.data(),packet.size(),offset,message)&&message.id==33&&message.latitudeE7==370010000&&message.longitudeE7==-1220000000);
+  geo.service();assert(geo.stateJson(true).value.find("\"fresh\":true")!=std::string::npos);
+  command(geo,"GeoStart");geo.service();assert(geo.isActive()&&!engine.isActive());
+  for(const char *invalid:{"GeoTestPosition:91,-122,1","GeoTestPosition:nan,-122,1","GeoTestPosition:37,-122,-2","GeoTestPosition:37,-122,1,extra"})command(geo,invalid);
+  assert(testDatagrams.empty());
+  ++testNow;command(geo,"GeoTestPosition:37,-122,1");assert(!engine.isActive());geo.service();assert(engine.isActive());
+  for(unsigned i=0;i<4500&&geo.isActive();++i){++testNow;payload.service();engine.service();if(i%1000==0)command(geo,"GeoTestPosition:37,-122,1");geo.service();}
+  assert(!geo.isActive()&&payload.starts.size()==1); // Refresh survives the four-second initial delay.
+  WiFi.statusValue=WL_CONNECTED;WiFi.modeValue=0;
+  ++testNow;command(geo,"GeoTestPosition:37,-122,1");geo.service();command(geo,"GeoStart");geo.service();assert(engine.isActive());
+  testNow+=3001;geo.service();assert(!geo.isActive()&&geo.consumeSafetyStop());engine.stop(CommandSource::INTERNAL,"test","stale test feed");assert(!payload.output);
+  command(geo,"GeoSource:API");command(geo,"GeoTestPosition:37,-122,1");assert(testDatagrams.empty());
+  WiFi.statusValue=0;WiFi.modeValue=0;
+  std::cout<<"PASS manual MAVLink UDP loopback on AP/client, independent CRC/fields, outside/inside radius, refreshed start delay, stale stop, invalid test positions\n";
+}
+int main(){timingTests();arbitraryRoutineTests();continuousRoutineTests();geoTests();expandedGeoTests();mavlinkTests();mavlinkMissionTests();udpSelfTestTests();}

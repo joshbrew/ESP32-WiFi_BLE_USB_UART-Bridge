@@ -31,6 +31,8 @@ class GeoMission {
   void pollMavlink();
   void position(double latitude, double longitude, float accuracy, uint32_t ageMs);
   bool fresh() const;
+  bool parsePosition(const String &body, InputFix &fix) const;
+  bool sendTestPosition(const String &body);
   bool load();
   bool save();
   bool validate(const Plan &plan) const;

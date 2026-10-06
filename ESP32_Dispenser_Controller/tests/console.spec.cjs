@@ -55,7 +55,7 @@ const server = http.createServer((request, response) => {
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.getByRole("button", { name: "Run dots", exact: true }).waitFor();
     assert.equal(await page.locator("#geoSource").inputValue(), "API");
-    assert.match(await page.locator("#savedRoutines").innerText(), /Delay 1000 ms.*6 pulses/);
+    assert.match(await page.locator("#savedRoutines").innerText(), /Delay 1000 ms.*6 repeats/);
     for (const id of ["routineDelay", "routinePulse", "routineGap", "routineRepeats", "pulseDuration"])
       assert.equal(await page.locator(`#${id}`).getAttribute("max"), null);
     await page.locator("#routineDelay").fill("500000");
@@ -74,6 +74,13 @@ const server = http.createServer((request, response) => {
     await page.locator("#routineRepeats").fill("4294967295");
     await page.locator("#saveRoutine").click();await page.waitForFunction(() => !state.busy);
     assert(commands.at(-1).includes("RoutineRepeat:dots:4294967295"));
+    await page.locator("#routineContinuous").check();
+    assert(await page.locator("#routineRepeats").isDisabled());
+    await page.locator("#saveRoutine").click();await page.waitForFunction(() => !state.busy);
+    assert(commands.at(-1).includes("RoutineRepeat:dots:FOREVER"));
+    assert(commands.at(-1).includes("RoutineAdd:dots:START_WAIT:500000"));
+    await page.locator("#routineContinuous").uncheck();
+    assert(await page.locator("#routineRepeats").isEnabled());
     snapshot.dispenser.armed=false;
     await page.waitForFunction(() => !document.getElementById("useHourLimit").disabled);
     const beforeLimits=commands.length;
@@ -95,6 +102,20 @@ const server = http.createServer((request, response) => {
     assert.match(batches[0], /GeoSource:API/);
     assert.match(batches.at(-1), /GeoSave$/);
     assert(await page.evaluate(() => { try { coordinateCommands("91,-122,5,dots"); return false; } catch { return true; } }));
+    assert(await page.locator("#geoTestSend").isDisabled());
+    snapshot.geo.source="MAVLINK";
+    await page.waitForFunction(() => !document.getElementById("geoTestSend").disabled);
+    await page.locator("#geoTestPosition").fill("37,-122,1.25");
+    await page.locator("#geoTestSend").click();await page.waitForFunction(() => !state.busy);
+    assert.equal(commands.at(-1),"GeoTestPosition:37,-122,1.25");
+    await page.locator("#geoTestStream").check();await page.waitForTimeout(1250);
+    assert(commands.slice(-2).every(body=>body==="GeoTestPosition:37,-122,1.25"));
+    await page.locator("#stopGeo").click();await page.waitForTimeout(100);
+    assert(!(await page.locator("#geoTestStream").isChecked()));
+    const afterTestStop=commands.length;await page.waitForTimeout(1200);assert.equal(commands.length,afterTestStop);
+    await page.locator("#geoTestPosition").fill("91,-122,1");
+    await page.locator("#geoTestSend").click();await page.waitForFunction(() => !state.busy);assert.equal(commands.length,afterTestStop);
+    snapshot.geo.source="API";
     await page.getByText("Wi-Fi network / drone hotspot", { exact: true }).click();
     const invalidSsid = await page.evaluate(async () => {
       elements.wifiSsid.value = "é".repeat(17);
@@ -144,6 +165,7 @@ const server = http.createServer((request, response) => {
     await page.close();
     // Exercise the actual minified gzip page embedded in firmware too.
     snapshot.routine.library.push(["hold", 0, 20, 0, 1, true, 3]);
+    snapshot.routine.library.push(["loop", 5000, 20, 100, 0, true, 4]);
     const embedded = await browser.newPage();
     embedded.on("pageerror", error => errors.push(error.message));
     await embedded.goto(`http://127.0.0.1:${server.address().port}/?embedded=1`);
@@ -155,6 +177,18 @@ const server = http.createServer((request, response) => {
     await embedded.waitForFunction(() => !document.getElementById("saveRoutine").disabled);
     assert(commands.at(-1).includes("RoutineRepeat:dots:300"));
     assert.match(commands.at(-1), /RoutineAdd:dots:START_WAIT:7000/);
+    await embedded.locator("#routineContinuous").check();
+    await embedded.locator("#saveRoutine").click();
+    await embedded.waitForFunction(() => !document.getElementById("saveRoutine").disabled);
+    assert(commands.at(-1).includes("RoutineRepeat:dots:FOREVER"));
+    assert.match(await embedded.locator("#savedRoutines").innerText(), /Delay 5000 ms.*until stopped/);
+    snapshot.geo.source="MAVLINK";
+    await embedded.waitForFunction(() => !document.getElementById("geoTestSend").disabled);
+    await embedded.getByText("Coordinate-triggered routines", { exact: true }).click();
+    await embedded.locator("#geoTestPosition").fill("37,-122,1");
+    await embedded.locator("#geoTestSend").click();
+    await embedded.waitForFunction(() => !document.getElementById("geoTestSend").disabled);
+    assert.equal(commands.at(-1),"GeoTestPosition:37,-122,1");
     await embedded.getByRole("button", { name: "Run hold", exact: true }).click();
     await embedded.waitForTimeout(100); assert(heldResponse);
     await embedded.locator("#stopRoutine").click();

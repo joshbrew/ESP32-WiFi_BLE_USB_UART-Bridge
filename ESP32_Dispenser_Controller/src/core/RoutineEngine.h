@@ -58,7 +58,7 @@ class RoutineEngine {
     uint16_t version;
     uint8_t used;
     uint8_t count;
-    uint32_t repeatCount;
+    uint32_t repeatCount; // 0 means repeat until stopped (FOREVER).
     char name[AppConfig::ROUTINE_NAME_BYTES + 1];
     StoredStep steps[AppConfig::ROUTINE_MAX_STEPS];
     uint32_t checksum;

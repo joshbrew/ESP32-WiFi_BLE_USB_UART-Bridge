@@ -65,6 +65,7 @@ nonzero installation ceilings and saved profile limits are preserved.
 | `RoutineAdd:name:WAIT_IDLE` | Wait for current timed action/motor to finish |
 | `RoutineAdd:name:COMMAND:command` | Append allowlisted hardware action |
 | `RoutineRepeat:name:n` | 1–4294967295 repeats |
+| `RoutineRepeat:name:FOREVER` | Continuous on/off cycles until stopped; saved repeats=0 |
 | `RoutineSave:name` | Validate and persist |
 | `RoutineRun:name` | Run in-memory version; outputs must be healthy/idle |
 | `RoutineStop` | Global stop barrier, disarm and clear pending work |
@@ -78,6 +79,13 @@ requires prior arming. Allowed dispenser COMMAND actions are `Dispense:ms` and
 `DispenseStop`. Advanced actions include RPM/DEG/move presets, Stop/CoilsOff,
 DAC1:MV, DAC1/GPIO26/DACAll/OutputAll:ON/OFF. Test pulses/config/radio/admin commands
 are excluded. Completion waits for trailing motion/pulse, then stops all outputs.
+Continuous dispenser routines require arm expiry disabled (`DispenserArmTimeout:0`);
+enabled maximum pulse still applies. START_WAIT runs once even after long-running
+counter saturation. Numeric repeat 0 remains invalid; use FOREVER to opt in.
+Status and saved records represent continuous mode as repeats=0. Continuous
+routines assigned to a coordinate hold that point until the sequence is stopped;
+use finite repeats to advance automatically. STOP/disarm/interlock and stale
+coordinate fixes still cancel subsequent cycles.
 
 ## Coordinate sequences
 
@@ -95,6 +103,7 @@ points persist; position, enablement and progress never resume after reboot.
 | `GeoStop` | Immediate global stop barrier; cancel routine, disarm, clear queue |
 | `GeoResetPosition` | Clear fix and MAVLink source clock after sender reboot; stop first |
 | `GeoPosition:lat,lon,accuracyMeters,ageMs` | Bench API fix; source must be API |
+| `GeoTestPosition:lat,lon,accuracyMeters` | Send one local MAVLink GPS/global datagram through the ordinary UDP receiver; needs MAVLink source, enabled Wi-Fi and active UDP socket |
 
 Continuous custom fixes use `POST /api/position` with four comma-separated
 plain-text fields, max 128 bytes, accuracy -1 (unknown) or 0–100000 m, age 0–3000
@@ -110,6 +119,12 @@ HTTP state includes the whole plan. Stream `@STATE` omits the point array to kee
 Bluetooth status responsive; `@GEO:offset` returns an `@GEO` JSON page containing
 offset/count/points/next, up to sixteen points at a time. Offsets accept 0–500.
 The console loads large BLE plans through these pages and shows build/read progress.
+Test GPS accepts accuracy -1 (unknown) or 0–100000 meters. Zero encodes 1 mm,
+matching the ESP32 test sender's known-accuracy convention. **Keep sending every
+second** sends the current test input repeatedly; stop/disarm, disconnect, source
+change, navigation or update stops the browser feed. These fixes can run an
+enabled sequence, so stop real telemetry and use simulation/disconnected hardware
+for initial tests. Test frames only loop back to the Pi, never to a flight controller.
 
 ## Radio configuration and profiles
 

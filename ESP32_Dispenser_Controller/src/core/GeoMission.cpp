@@ -48,8 +48,14 @@ void GeoMission::resetPosition() {
 #endif
 }
 bool GeoMission::submitPosition(const String &body) {
-  if (!positionQueue_ || body.length() > 128) return false;
-  InputFix fix{}; fix.receivedAt = millis();
+  if (!positionQueue_) return false;
+  InputFix fix{}; parsePosition(body, fix);
+  // Invalid samples invalidate the previous fix on the controller task too.
+  return xQueueOverwrite(positionQueue_, &fix) == pdPASS && fix.valid;
+}
+bool GeoMission::parsePosition(const String &body, InputFix &fix) const {
+  fix.receivedAt = millis();
+  if (body.length() > 128) return false;
   String fields[4]; unsigned int start = 0;
   bool shape = true;
   for (uint8_t i = 0; i < 4; ++i) {
@@ -63,8 +69,33 @@ bool GeoMission::submitPosition(const String &body) {
     coordinates(fix.latitude, fix.longitude) && number(fields[2], accuracy) && (accuracy == -1 || accuracy >= 0) && accuracy <= 100000 &&
     TextUtil::parseUnsigned32(fields[3], fix.ageMs) && fix.ageMs <= FIX_TIMEOUT_MS;
   fix.accuracy = accuracy;
-  // Invalid samples invalidate the previous fix on the controller task too.
-  return xQueueOverwrite(positionQueue_, &fix) == pdPASS && fix.valid;
+  return fix.valid;
+}
+bool GeoMission::sendTestPosition(const String &body) {
+#if APP_WIFI_ENABLED
+  InputFix fix{};
+  if (plan_.source != 0 || !parsePosition(body + ",0", fix) ||
+      (WiFi.status() != WL_CONNECTED && !(WiFi.getMode() & WIFI_AP))) return false;
+  if (!udpReady_) { udpReady_ = udp_.begin(AppConfig::GEO_MAVLINK_UDP_PORT); if (!udpReady_) return false; }
+  uint8_t packet[90]{};
+  const uint8_t gpsHeader[] = {0xFD,38,0,0,0,AppConfig::GEO_MAVLINK_SYSTEM_ID,AppConfig::GEO_MAVLINK_COMPONENT_ID,24,0,0};
+  const uint8_t positionHeader[] = {0xFD,28,0,0,1,AppConfig::GEO_MAVLINK_SYSTEM_ID,AppConfig::GEO_MAVLINK_COMPONENT_ID,33,0,0};
+  memcpy(packet, gpsHeader, 10); memcpy(packet + 50, positionHeader, 10);
+  const int32_t latitude = static_cast<int32_t>(fix.latitude * 1e7 + (fix.latitude < 0 ? -0.5 : 0.5));
+  const int32_t longitude = static_cast<int32_t>(fix.longitude * 1e7 + (fix.longitude < 0 ? -0.5 : 0.5));
+  MavlinkPosition::write32(packet + 18, latitude); MavlinkPosition::write32(packet + 22, longitude);
+  packet[38] = 3; // GPS_RAW_INT fix_type: 3D.
+  MavlinkPosition::write32(packet + 44, fix.accuracy < 0 ? 0 : static_cast<uint32_t>(fmaxf(1, fix.accuracy * 1000)));
+  MavlinkPosition::write32(packet + 60, haveBootTime_ ? lastBootMs_ + 1 : millis());
+  MavlinkPosition::write32(packet + 64, latitude); MavlinkPosition::write32(packet + 68, longitude);
+  MavlinkPosition::finishFrame(packet, 48, 24); MavlinkPosition::finishFrame(packet + 50, 38, 104);
+  // Send through the socket back to our Wi-Fi address. Only the ordinary UDP
+  // receiver may turn this into a fix or trigger a routine.
+  return udp_.beginPacket(WiFi.status() == WL_CONNECTED ? WiFi.localIP() : WiFi.softAPIP(), AppConfig::GEO_MAVLINK_UDP_PORT) &&
+    udp_.write(packet, sizeof(packet)) == sizeof(packet) && udp_.endPacket();
+#else
+  (void)body; return false;
+#endif
 }
 void GeoMission::report(EventLevel level, const String &text, CommandSource source, const String &requestId) const {
   events_.publish(level, "[GEO] " + text, source, requestId);
@@ -142,6 +173,11 @@ bool GeoMission::handleCommand(const String &command, CommandSource source, cons
     else if (!submitPosition(work.substring(12))) report(EventLevel::ERROR, "invalid or stale position; use latitude,longitude,accuracyMeters,ageMs", source, requestId);
     return true;
   }
+  if (TextUtil::startsWithIgnoreCase(work, "GeoTestPosition:")) {
+    const bool sent = sendTestPosition(work.substring(16));
+    report(sent ? EventLevel::STATUS : EventLevel::ERROR, sent ? "test MAVLink UDP sent" : "test needs MAVLink, Wi-Fi, valid lat,lon,accuracy", source, requestId);
+    return true;
+  }
   if (active_) { report(EventLevel::ERROR, "stop the coordinate sequence before editing", source, requestId); return true; }
   if (work.equalsIgnoreCase("GeoResetPosition")) { resetPosition(); return true; }
   if (TextUtil::startsWithIgnoreCase(work, "GeoSource:")) {
@@ -151,7 +187,7 @@ bool GeoMission::handleCommand(const String &command, CommandSource source, cons
     } else { plan_.source = value.equalsIgnoreCase("API") ? 1 : 0; saved_ = false; resetPosition(); }
     return true;
   }
-  if (work.equalsIgnoreCase("GeoClear")) { plan_ = {}; plan_.magic = MAGIC; saved_ = false; next_ = 0; resetPosition(); return true; }
+  if (work.equalsIgnoreCase("GeoClear")) { memset(&plan_, 0, sizeof(plan_)); plan_.magic = MAGIC; saved_ = false; next_ = 0; resetPosition(); return true; }
   if (work.equalsIgnoreCase("GeoLoad")) { saved_ = load(); resetPosition(); report(saved_ ? EventLevel::STATUS : EventLevel::ERROR, saved_ ? "plan loaded" : "no valid saved plan", source, requestId); return true; }
   if (work.equalsIgnoreCase("GeoSave")) { saved_ = save(); report(saved_ ? EventLevel::STATUS : EventLevel::ERROR, saved_ ? "plan saved" : "plan save failed", source, requestId); return true; }
   if (TextUtil::startsWithIgnoreCase(work, "GeoAdd:")) {
@@ -182,7 +218,7 @@ bool GeoMission::handleCommand(const String &command, CommandSource source, cons
 void GeoMission::pollMavlink() {
 #if APP_WIFI_ENABLED
   if (plan_.source != 0) { if (udpReady_) udp_.stop(); udpReady_ = false; return; }
-  if (WiFi.status() != WL_CONNECTED) { udp_.stop(); udpReady_ = false; return; }
+  if (WiFi.status() != WL_CONNECTED && !(WiFi.getMode() & WIFI_AP)) { udp_.stop(); udpReady_ = false; return; }
   if (!udpReady_) { udpReady_ = udp_.begin(AppConfig::GEO_MAVLINK_UDP_PORT); if (!udpReady_) return; }
   // Bounded datagrams; the configured UDP peer must send whole MAVLink frames.
   for (uint8_t packet = 0; packet < 4; ++packet) {

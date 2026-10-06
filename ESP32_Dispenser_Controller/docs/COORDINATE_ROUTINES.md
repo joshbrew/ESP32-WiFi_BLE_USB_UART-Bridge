@@ -7,6 +7,14 @@ Stop all cancel the sequence and release the output. An initial delay is stored
 as the first `START_WAIT` step and runs only before the first pulse. `WAIT`
 steps run every repetition, including the final trailing gap.
 
+Check **Repeat until stopped** for continuous on/off cycling. The initial delay
+still runs only once. Save it as a named routine and use its Run button later;
+the continuous option survives reboot. **Stop routine** releases the output and
+cancels further pulses. Continuous routines need arming expiry disabled; use
+**Remove saved time limits** if your older payload settings have an expiry.
+An unlimited routine assigned to a GPS point holds that point until stopped;
+use a finite repeat count when the sequence should advance automatically.
+
 Repeat counts and timed steps use unsigned 32-bit integers. Repeats accept
 1–4294967295; pulses accept 1–4294967295 ms (about 49.7 days), and initial delay
 and gaps accept 0–4294967295 ms. These are storage bounds: there is no 20-repeat,
@@ -75,7 +83,7 @@ GPS offset, dispensing lag, wind, or movement during an initial delay.
 ## Standard MAVLink input
 
 Forward unsigned [MAVLink common](https://mavlink.io/en/messages/common.html)
-`GPS_RAW_INT` (ID 24) and `GLOBAL_POSITION_INT` (ID 33) to the ESP32 station IP,
+`GPS_RAW_INT` (ID 24) and `GLOBAL_POSITION_INT` (ID 33) to the ESP32 station or AP IP,
 UDP port **14550**, as complete MAVLink 1 or 2 frames per datagram. Multiple
 frames in one datagram are accepted. Set `GeoSource:MAVLINK` then `GeoSave`.
 System/component default to **1/1**; change `GEO_MAVLINK_SYSTEM_ID`,
@@ -90,6 +98,26 @@ send heartbeat, change flight modes, request message rates, or verify signatures
 configure a flight controller or companion to forward those streams. Stop the
 sequence and send `GeoResetPosition` after a flight-controller reboot or clock
 reset, then wait for new fixes before starting again.
+
+## Test GPS manually without a drone
+
+1. Save a short test routine and a coordinate sequence using **MAVLink over Wi-Fi**.
+2. Connect to the ESP32 AP or use its client connection. Stop real telemetry while testing.
+3. In **Test current GPS**, enter `latitude,longitude,accuracyMeters`. Start with a
+   coordinate outside the first point's radius and click **Send test GPS position**.
+4. Wait for fresh position status, then click **Start sequence**.
+5. Change the test coordinate to inside the radius and send again. The routine
+   starts with its saved initial delay, then runs its pulses.
+6. Check **Keep sending every second** for delays or routines over three seconds.
+   It resends the currently entered coordinate. **Stop sequence** stops the feed
+   and output. Closing the page or losing updates causes stale-position shutdown.
+
+The ESP32 sends actual MAVLink 2 GPS_RAW_INT and GLOBAL_POSITION_INT packets to
+its own Wi-Fi IP on the configured UDP port. They pass through the normal socket,
+CRC, fix-quality, coordinate, and mission handling. The test does not bypass the
+receiver or directly set a fix. Hardware UDP delivery still needs a bench check.
+USB/BLE/HTTP command equivalent: `GeoTestPosition:37.4219999,-122.0840575,1`.
+One command sends one datagram; repeat it within three seconds for a long test.
 
 ## Interface for XAG or another proprietary provider
 

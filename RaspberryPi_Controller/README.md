@@ -18,7 +18,7 @@ The current ESP32 additions are tracked in [FEATURE_PARITY.md](docs/FEATURE_PARI
 | Command transports | HTTP, BLE UART, authenticated Classic Bluetooth SPP, USB serial gadget/adapter, GPIO UART |
 | Routing | Shared bounded queue, explicit Send/SendBLE/SendSPP/SendWiFi/SendUSB/SendUART routing |
 | Dispenser | Arm/disarm, timed pulses, timeout, interlock, polarity/pin configuration, four saved payload profiles |
-| Routines | Four routines, ten steps, one-time START_WAIT, WAIT/WAIT_IDLE/allowed actions, 32-bit timing/repeats, no total runtime cap, optional-limit preflight, named Run buttons |
+| Routines | Four routines, ten steps, one-time START_WAIT, WAIT/WAIT_IDLE/allowed actions, 32-bit timing/repeats, repeat until stopped, optional-limit preflight, named Run buttons |
 | Coordinate sequences | 500 ordered points, saved routine snapshots, automatic arming at each next point, MAVLink UDP or custom position API, independent stale-position output inhibit, paged stream readback |
 | Optional hardware | 28BYJ-48/ULN2003 stepper, external MCP4725 DAC, digital output; select `stepper_dac` |
 | Indicators | Optional connection/activity LEDs on separately assigned BCM pins |
@@ -306,6 +306,11 @@ Named Run buttons show saved delay/pulse/gap/repeat values; unsaved edits disabl
 that button until saved. `START_WAIT:ms` is first-step-only and runs once before
 all repeats. `WAIT:ms` runs every repeat, including the final gap. Pulse values
 are 1–4294967295 ms; delays/gaps 0–4294967295 ms; repeats 1–4294967295.
+**Repeat until stopped** saves `RoutineRepeat:name:FOREVER` (stored repeats=0).
+It runs the initial delay once, then repeats on/off cycles until stopped. Disable
+optional arm expiry before running; maximum pulse and interlock still apply.
+Continuous mode survives reboot in the routine library, while execution and
+arming never resume automatically. Both the dot builder and custom editor support it.
 There is no total routine runtime cap. With nonzero payload limits, preflight
 checks every pulse and the estimated duration plus a 1000 ms service margin
 against the remaining arm window before any output starts.
@@ -357,11 +362,16 @@ controls cancel the sequence and prevent later repeats from restarting output.
 See [COORDINATE_ROUTINES.md](docs/COORDINATE_ROUTINES.md) for setup and provider
 contracts, including the shared ESP32 bridge script.
 
-The Pi expands the ESP32's 12-point capacity to 500. Paste one comma-separated
+The Pi expands the current ESP32's 256-point capacity to 500. Paste one comma-separated
 point per line in the editor; HTTP saves use batches of eight with progress and
 bounded retry of busy admission. Plans use a separately bounded 256 KiB file.
 Stream `@STATE` keeps summary status small; `@GEO:offset` reads pages of sixteen
 points. The BLE console fetches these pages when loading the saved editor plan.
+**Test GPS through MAVLink** sends the manually entered coordinate through the
+Pi's real local UDP receiver. Its one-second repeat feed supports long bench
+tests and stops with stop/disarm, disconnect, source changes, navigation or update.
+Use finite routines to advance a plan automatically: a continuous point routine
+holds that point while fixes remain fresh, until stopped.
 
 ## Updates and recovery
 
@@ -441,8 +451,9 @@ on Linux, including the SPP Unix socket check skipped on Windows.
 
 Coverage includes deadline/interlock behavior, startup polarity, stop barriers,
 retry handling, profiles/routines, motor steps/DAC encoding, radio rollback,
-self-test checkpoints, 32-bit timing, initial delays, coordinate ordering,
-MAVLink CRC/truncation/replay checks, real local UDP, position API admission,
+self-test checkpoints, 32-bit timing, initial delays, continuous routine persistence
+and stop handling, coordinate ordering and 500-point plans,
+MAVLink CRC/truncation/replay checks, test GPS encoding and real local UDP, position API admission,
 stale-position watchdog inhibition,
 malformed updates, health rollback and boot recovery.
 Physical GPIO timing, RF coexistence, USB enumeration and actual installation

@@ -48,7 +48,7 @@
         <span class="kicker">Saved nonblocking timing</span>
         <h2>Repeater routine</h2>
       </div>
-      <p id="routineSummary" class="hint">Build a bounded pulse-and-wait routine, save it in controller memory, then arm before running.</p>
+      <p id="routineSummary" class="hint">Save a pulse-and-wait routine, then arm before running.</p>
       <div class="routineBuilder">
         <label>Name<input id="routineName" maxlength="15" value="dots" spellcheck="false"></label>
         <label>Initial delay ms<input id="routineDelay" type="number" min="0" value="0"></label>
@@ -56,6 +56,7 @@
         <label>Gap ms<input id="routineGap" type="number" min="0" value="800"></label>
         <label>Repeats<input id="routineRepeats" type="number" min="1" value="6"></label>
       </div>
+      <label class="hint"><input id="routineContinuous" type="checkbox"> Repeat until stopped</label>
       <div class="inlineCommands">
         <button id="saveRoutine">Build + save</button>
         <button id="runRoutine" class="primary">Run saved routine</button>
@@ -94,6 +95,13 @@
       </div>
       <p class="hint">Start authorizes automatic arming at each next point. Its routine runs once when inside the radius, then the sequence advances. Position loss stops the sequence and output. Restart explicitly starts again at point 1.</p>
       <p class="hint">MAVLink input: UDP port 14550, system/component 1/1, GPS_RAW_INT and GLOBAL_POSITION_INT. A custom bridge can POST latitude,longitude,accuracyMeters,ageMs as plain text to /api/position. Updates must stay fresh throughout the routine.</p>
+      <label class="fieldLabel" for="geoTestPosition">Test current GPS: latitude, longitude, accuracy in meters</label>
+      <input id="geoTestPosition" placeholder="37.4219999,-122.0840575,1" spellcheck="false">
+      <div class="inlineCommands">
+        <button id="geoTestSend">Send test GPS position</button>
+        <label class="hint"><input id="geoTestStream" type="checkbox"> Keep sending every second</label>
+      </div>
+      <p class="hint">Select MAVLink and save the sequence first. Send a position before Start, then edit it to test entering a radius. Keep sending for long routines. Test positions can run an enabled sequence; Stop sequence ends the test feed and output.</p>
     </details>
 
     <section class="panel console">

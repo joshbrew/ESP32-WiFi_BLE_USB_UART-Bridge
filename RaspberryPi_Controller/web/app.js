@@ -13,6 +13,7 @@ let formProfile = null;
 let routineCards = "", geoFormLoaded = false;
 let geoPageWaiter = null;
 let bleCommandWaiter = null;
+let testGpsTimer = null, testGpsGeneration = 0, testGpsSending = false;
 
 function log(message) {
   $("log").textContent += `[${new Date().toLocaleTimeString()}] ${message}\n`;
@@ -21,6 +22,7 @@ function log(message) {
 }
 function live(ok, message) {
   state.connected = ok;
+  if (!ok) stopTestGps();
   $("liveDot").classList.toggle("on", ok);
   $("liveText").textContent = message;
   updateButtons();
@@ -33,6 +35,7 @@ function render(data) {
   $("payloadSettings").hidden = !isDispenser;
   $("motorPanel").hidden = !advanced;
   $("dotBuilder").hidden = !isDispenser;
+  $("continuousBuilder").hidden = !isDispenser;
   $("geoPanel").hidden = !isDispenser;
   $("saveRoutine").hidden = $("runRoutine").hidden = !isDispenser;
   $("buildVersion").textContent = `${data.firmware} · ${data.version}`;
@@ -41,7 +44,7 @@ function render(data) {
   $("payloadState").className = "stateBadge " + (p.faulted ? "fault" : p.dispensing ? "active" : p.armed ? "armed" : "safe");
   $("payloadMeta").textContent = `BCM GPIO ${p.pin} · profile ${p.profile} · arm ${p.armUnlimited ? "no expiry" : p.armRemainingMs + " ms"} · output ${p.remainingMs} ms · maximum ${p.maxPulseMs ? p.maxPulseMs + " ms" : "unlimited"}`;
   $("pulseDuration").max = p.maxPulseMs || U32;
-  $("routineSummary").textContent = routine.active ? `Running ${routine.name}, step ${routine.step + 1}, repeat ${routine.repeat + 1}${routine.delayRemainingMs ? " · initial delay " + routine.delayRemainingMs + " ms" : ""}` : `${routine.stored} routines in memory · ${routine.lastResult}`;
+  $("routineSummary").textContent = routine.active ? `Running ${routine.name}, step ${routine.step + 1}, ${routine.continuous ? "repeating until stopped" : "repeat " + (routine.repeat + 1) + "/" + routine.repeats}${routine.delayRemainingMs ? " · initial delay " + routine.delayRemainingMs + " ms" : ""}` : `${routine.stored} routines in memory · ${routine.lastResult}`;
   $("selfTestSummary").textContent = `${data.selfTest.phase} · ${data.selfTest.current}/${data.selfTest.total} · pass ${data.selfTest.pass}, fail ${data.selfTest.fail}, skip ${data.selfTest.skip}. ${data.selfTest.lastResult}`;
   $("selfTestProgress").value = data.selfTest.current;
   $("bootSummary").textContent = `Boot policy: ${data.bootMode}. Indicators: ${data.indicators.enabled ? "enabled" : "disabled in installation config"}.`;
@@ -94,6 +97,12 @@ function updateButtons() {
   for (const button of document.querySelectorAll("[data-saved-run]")) button.disabled = !idle || button.dataset.dirty === "true" || (state.latest?.addon?.dispenser && (!p?.armed || p.dispensing));
   $("startGeo").disabled = !idle || !geo?.saved || !geo.count || !geo.fresh || p?.faulted || p?.interlockOpen || p?.dispensing;
   $("sendFix").disabled = state.busy || !state.connected || geo?.source !== "API";
+  const testGpsReady = state.connected && !adminBusy && geo?.source === "MAVLINK" && geo.udpReady && state.latest?.radio.wifiEnabled;
+  $("geoTestSend").disabled = state.busy || !testGpsReady;
+  $("geoTestStream").disabled = state.busy || !testGpsReady;
+  if (!testGpsReady) stopTestGps();
+  $("routineRepeats").disabled = $("routineContinuous").checked;
+  $("editRepeats").disabled = $("customContinuous").checked;
   $("removeLimits").disabled = !idle || !!p?.installationMaxPulseMs || !!p?.installationArmTimeoutMs;
   $("sendCommands").disabled = state.busy;
   $("uploadUpdate").disabled = !idle || !!state.rx || !state.latest?.update?.enabled;
@@ -130,6 +139,9 @@ function writeBLE(text) {
   return result;
 }
 function submit(body, emergency = false) {
+  const commands = body.split(/\r?\n/).map(line => line.trim());
+  if (commands.some(line => /^(StopAll|Disarm|DispenserDisarm|DispenseStop|DispenserOff|RoutineStop|GeoStop|Stop|CoilsOff|GPIO26:OFF)$/i.test(line))) { stopTestGps(); emergency = true; }
+  if (commands.some(line => /^(GeoClear|GeoLoad|GeoResetPosition|GeoSource:|Mode|ConfigApply|Reboot|WebRestart|SelfTestStart)/i.test(line))) stopTestGps();
   const epoch = emergency ? ++commandEpoch : commandEpoch;
   const work = async () => {
     if (epoch !== commandEpoch) return;
@@ -182,6 +194,7 @@ function bleData(event) {
   }
 }
 function disconnected() {
+  stopTestGps();
   geoPageWaiter?.reject(new Error("BLE disconnected during plan read"));
   bleCommandWaiter?.reject(new Error("BLE disconnected during command"));
   state.rx = null; state.buffer = ""; state.blePending = false;
@@ -235,7 +248,7 @@ $("sendCommands").addEventListener("click", () => action(() => submit($("command
 $("dispensePulse").addEventListener("click", () => action(() => submit(`Dispense:${$("pulseDuration").value}`)));
 $("saveRoutine").addEventListener("click", () => action(() => {
   const name = routineName();
-  const delay = integerField("routineDelay", 0), pulse = integerField("routinePulse"), gap = integerField("routineGap", 0), repeats = integerField("routineRepeats");
+  const delay = integerField("routineDelay", 0), pulse = integerField("routinePulse"), gap = integerField("routineGap", 0), repeats = $("routineContinuous").checked ? "FOREVER" : integerField("routineRepeats");
   return sequence([`RoutineCreate:${name}`, `RoutineAdd:${name}:START_WAIT:${delay}`, `RoutineAdd:${name}:DISPENSE:${pulse}`, `RoutineAdd:${name}:WAIT_IDLE`, `RoutineAdd:${name}:WAIT:${gap}`, `RoutineRepeat:${name}:${repeats}`, `RoutineSave:${name}`]);
 }));
 $("runRoutine").addEventListener("click", () => action(() => submit(`RoutineRun:${routineName()}`)));
@@ -253,9 +266,11 @@ function nameOf(id) {
   return name;
 }
 async function sequence(lines, progress = () => {}) {
-  const epoch = commandEpoch;
+  let epoch = commandEpoch;
   for (const line of lines) {
     if (epoch !== commandEpoch) throw new Error("Operation cancelled by stop");
+    // A standalone disarm inside a settings sequence is its authorized barrier.
+    if (/^(Disarm|StopAll|GeoStop)$/i.test(line)) epoch++;
     if (state.rx) {
       const confirmation = new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error("Controller did not confirm BLE command")), 15000);
@@ -297,7 +312,7 @@ function renderRoutineCards(data) {
     const timing = type => record.steps.map(step => step.replace(/^COMMAND:/i, "")).filter(step => step.toUpperCase().startsWith(type + ":")).map(step => step.split(":").at(-1)).join(", ") || "0";
     card.className = "savedRoutine"; button.className = "primary";
     button.textContent = `Run ${name}`; button.dataset.savedRun = name; button.dataset.dirty = String(dirty);
-    summary.textContent = `Delay ${timing("START_WAIT")} ms · pulse ${timing("DISPENSE")} ms · gap ${timing("WAIT")} ms · ${record.repeats} repeats${dirty ? " · editor changes need saving" : ""}`;
+    summary.textContent = `Delay ${timing("START_WAIT")} ms · pulse ${timing("DISPENSE")} ms · gap ${timing("WAIT")} ms · ${record.repeats ? record.repeats + " repeats" : "until stopped"}${dirty ? " · editor changes need saving" : ""}`;
     button.addEventListener("click", () => action(() => submit(`RoutineRun:${name}`)));
     card.append(button, summary); return card;
   }));
@@ -329,14 +344,16 @@ bind("setDac", () => submit(`DAC1:MV:${$("dacMv").value}`));
 bind("saveCustom", async () => {
   const name = nameOf("editRoutineName"), steps = $("routineSteps").value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   if (!steps.length || steps.length > 10) throw new Error("Use 1-10 routine steps");
-  const repeats = integerField("editRepeats");
+  const repeats = $("customContinuous").checked ? "FOREVER" : integerField("editRepeats");
   if (steps.some((step, index) => index > 0 && /^START_WAIT:/i.test(step))) throw new Error("Initial delay must be the first step");
   await sequence([`RoutineCreate:${name}`, ...steps.map(step => `RoutineAdd:${name}:${step}`), `RoutineRepeat:${name}:${repeats}`, `RoutineSave:${name}`]);
 });
 bind("loadCustom", () => {
   const record = state.latest?.routineLibrary[nameOf("editRoutineName").toLowerCase()];
   if (!record) throw new Error("Choose a routine from the saved library");
-  $("editRepeats").value = record.repeats;
+  $("customContinuous").checked = record.repeats === 0;
+  $("editRepeats").value = record.repeats || 1;
+  updateButtons();
   $("routineSteps").value = record.steps.join("\n");
 });
 bind("runCustom", () => submit(`RoutineRun:${nameOf("editRoutineName")}`));
@@ -414,6 +431,7 @@ bind("handoffUpdate", async () => {
   log("Reconnect over the Pi Wi-Fi network, then upload the bundle using HTTP.");
 });
 bind("uploadUpdate", async () => {
+  stopTestGps();
   const file = $("updateFile").files[0], token = $("updateToken").value;
   if (!file || !file.name.toLowerCase().endsWith(".zip") || file.size > 8 * 1024 * 1024) throw new Error("Choose a Pi .zip bundle no larger than 8 MiB");
   if (!token) throw new Error("Enter the private installation update token");
@@ -437,4 +455,36 @@ bind("uploadUpdate", async () => {
     request.send(file);
   });
 });
+function stopTestGps() {
+  clearInterval(testGpsTimer); testGpsTimer = null; testGpsGeneration++;
+  $("geoTestStream").checked = false;
+  $("geoTestStatus").textContent = "Test feed off. Stop sequence or STOP ALL also ends this feed.";
+}
+async function sendTestGps() {
+  const fields = $("geoTestPosition").value.split(",").map(value => value.trim()), [lat, lon, accuracy] = fields.map(Number);
+  if (fields.length !== 3 || fields.some(value => !value) || ![lat, lon, accuracy].every(Number.isFinite) || Math.abs(lat) > 90 || Math.abs(lon) > 180 || (accuracy < 0 && accuracy !== -1) || accuracy > 100000) throw new Error("Enter latitude,longitude,accuracy meters (-1 unknown or 0–100000)");
+  await sequence([`GeoTestPosition:${lat},${lon},${accuracy}`]);
+}
+bind("geoTestSend", sendTestGps);
+$("geoTestStream").addEventListener("change", () => {
+  if (!$("geoTestStream").checked) { stopTestGps(); return; }
+  const generation = ++testGpsGeneration;
+  action(async () => {
+    try {
+      await sendTestGps();
+      if (generation !== testGpsGeneration || !$("geoTestStream").checked) return;
+      $("geoTestStatus").textContent = "Sending test GPS every second from the current input.";
+      testGpsTimer = setInterval(async () => {
+        if (state.busy || testGpsSending) return;
+        testGpsSending = true;
+        try { await sendTestGps(); }
+        catch (error) { stopTestGps(); log(error.message); }
+        finally { testGpsSending = false; }
+      }, 1000);
+    } catch (error) { stopTestGps(); throw error; }
+  });
+});
+for (const id of ["routineContinuous", "customContinuous"]) $(id).addEventListener("change", updateButtons);
+window.addEventListener("pagehide", stopTestGps);
+window.addEventListener("beforeunload", stopTestGps);
 updateButtons(); poll();

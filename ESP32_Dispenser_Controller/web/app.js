@@ -14,9 +14,9 @@ for (const id of [
   "buildVersion", "liveDot", "liveText", "payloadState", "payloadMeta",
   "armDispenser", "disarmDispenser", "pulseDuration", "dispensePulse",
   "stopDispense", "routineName", "routinePulse", "routineGap",
-  "routineRepeats", "routineDelay", "savedRoutines", "saveRoutine", "runRoutine", "stopRoutine", "useHourLimit",
+  "routineRepeats", "routineContinuous", "routineDelay", "savedRoutines", "saveRoutine", "runRoutine", "stopRoutine", "useHourLimit",
   "wifiRole", "wifiSsid", "wifiPassword", "wifiProtocol", "wifiOpenNetwork", "saveWifi", "wifiSetupStatus",
-  "geoPoints", "geoSource", "geoStatus", "saveGeo", "startGeo", "stopGeo",
+  "geoPoints", "geoSource", "geoStatus", "saveGeo", "startGeo", "stopGeo", "geoTestPosition", "geoTestSend", "geoTestStream",
   "routineSummary", "connectBle", "disconnectBle", "transportSummary",
   "compiledSummary", "commandPreset", "commandInput", "sendCommands",
   "stopAll", "clearLog", "log", "statusSummary", "statusGrid",
@@ -227,6 +227,9 @@ function updateActions() {
   elements.useHourLimit.disabled = state.busy || dispenser.armed || dispenser.dispensing || routine.active || geo.active || addon.dispenser !== true;
   elements.saveGeo.disabled = state.busy || geo.active || addon.dispenser !== true;
   elements.startGeo.disabled = state.busy || geo.active || !geo.saved || !geo.count || !geo.fresh || routine.active || addon.dispenser !== true;
+  elements.geoTestSend.disabled = state.busy || geo.source !== "MAVLINK";
+  elements.geoTestStream.disabled = geo.source !== "MAVLINK";
+  if (geo.source !== "MAVLINK") stopTestGps();
   elements.saveWifi.disabled = state.busy || routine.active || geo.active;
   if (elements.commandPreset.selectedOptions[0]?.disabled) elements.commandPreset.selectedIndex = 0;
 }
@@ -277,7 +280,7 @@ function renderState(data) {
     else input.removeAttribute("max");
   }
   elements.routineSummary.textContent = routine.active
-    ? `Running ${routine.name}: step ${routine.step}/${routine.steps}, repeat ${routine.repeat}/${routine.repeats}${routine.delayRemainingMs ? ` · initial delay ${Math.ceil(routine.delayRemainingMs / 1000)} s left` : ""}`
+    ? `Running ${routine.name}: step ${routine.step}/${routine.steps}, ${routine.repeats ? `repeat ${routine.repeat}/${routine.repeats}` : "repeating until stopped"}${routine.delayRemainingMs ? ` · initial delay ${Math.ceil(routine.delayRemainingMs / 1000)} s left` : ""}`
     : `${routine.stored || 0}/${routine.capacity || 0} routine slots used. Arm the dispenser before running.`;
   renderSavedRoutines(routine.library || []);
   const geo = data.geo || {};
@@ -382,7 +385,7 @@ function writeBle(text) {
 async function runCommand(body, fast = false) {
   const clean = String(body || "").trim();
   if (!clean) throw new Error("Empty command");
-  if (/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm)$/i.test(clean)) { fast = true; ++state.commandGeneration; }
+  if (/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm)$/i.test(clean)) { stopTestGps(); fast = true; ++state.commandGeneration; }
   log(`TX ${usingBle() ? "BLE" : "HTTP"} ${clean.split("\n").map(redact).join(" | ")}`, "send");
   if (usingBle()) {
     await writeBle(clean + "\n");
@@ -422,6 +425,7 @@ function handleBleData(event) {
 }
 
 function bleDisconnected() {
+  stopTestGps();
   const wasBle = state.transport === "ble" || state.bleRx || state.bleTx;
   state.transport = "http";
   state.bleRx = null;
@@ -565,7 +569,7 @@ async function uploadFirmware() {
   if (file.size < 1024) throw new Error("Firmware image is too small");
   const magic = new Uint8Array(await file.slice(0, 1).arrayBuffer())[0];
   if (magic !== 0xe9) throw new Error("Selected file is not an ESP32 application image");
-  state.otaActive = true;
+  stopTestGps(); state.otaActive = true;
   renderTransport();
   elements.otaProgress.value = 0;
   try {
@@ -632,7 +636,7 @@ async function saveRoutinePreset() {
   const delay = readInteger(elements.routineDelay, 0, 4294967295, "Initial delay");
   const pulse = readInteger(elements.routinePulse, 1, maxPulse, "Pulse");
   const gap = readInteger(elements.routineGap, 0, 4294967295, "Gap");
-  const repeats = readInteger(elements.routineRepeats, 1, 4294967295, "Repeats");
+  const repeats = elements.routineContinuous.checked ? "FOREVER" : readInteger(elements.routineRepeats, 1, 4294967295, "Repeats");
   await runCommand([
     `RoutineCreate:${name}`,
     `RoutineAdd:${name}:START_WAIT:${delay}`,
@@ -661,7 +665,8 @@ function renderSavedRoutines(library) {
     const row = document.createElement("div"); row.className = "savedRoutine";
     const label = document.createElement("div"); label.textContent = `${name}${saved ? "" : " (unsaved)"}`;
     const details = document.createElement("small");
-    details.textContent = pulse ? `Delay ${delay} ms · on ${pulse} ms / off ${gap} ms · ${repeats} pulses` : `${steps} steps · ${repeats} repeats`;
+    const repetition = repeats ? `${repeats} repeats` : "until stopped";
+    details.textContent = pulse ? `Delay ${delay} ms · on ${pulse} ms / off ${gap} ms · ${repetition}` : `${steps} steps · ${repetition}`;
     label.append(details); row.append(label);
     if (saved) {
       const button = document.createElement("button"); button.textContent = `Run ${name}`; button.className = "primary";
@@ -705,6 +710,17 @@ async function saveCoordinateSequence() {
   // The controller admits eight lines per batch; leave room for housekeeping.
   for (let i = 0; i < commands.length; i += 4) { await runCommand(commands.slice(i, i + 4).join("\n")); await sleep(250); }
 }
+function stopTestGps() {
+  clearInterval(state.testGpsTimer); state.testGpsTimer = null;
+  elements.geoTestStream.checked = false;
+}
+async function sendTestGps() {
+  const fields = elements.geoTestPosition.value.split(",").map(value => value.trim());
+  const [lat, lon, accuracy] = fields.map(Number);
+  if (fields.length !== 3 || fields.some(value => !value) || !Number.isFinite(lat) || Math.abs(lat) > 90 || !Number.isFinite(lon) || Math.abs(lon) > 180 || !Number.isFinite(accuracy) || accuracy < 0 || accuracy > 100000)
+    throw new Error("Enter latitude,longitude,accuracy in meters");
+  await runCommand(`GeoTestPosition:${lat},${lon},${accuracy}`);
+}
 
 document.addEventListener("click", event => {
   const button = event.target.closest("button[data-command]");
@@ -731,6 +747,7 @@ elements.sendCommands.addEventListener("click", sendInput);
 elements.stopAll.addEventListener("click", () => runCommand("StopAll", true).catch(error => log(error.message, "error")));
 elements.dispensePulse.addEventListener("click", () => withLock(customDispense));
 elements.saveRoutine.addEventListener("click", () => withLock(saveRoutinePreset));
+elements.routineContinuous.addEventListener("change", () => { elements.routineRepeats.disabled = elements.routineContinuous.checked; });
 elements.runRoutine.addEventListener("click", () => withLock(runNamedRoutine));
 elements.useHourLimit.addEventListener("click", () => withLock(async () => {
   await runCommand("Disarm", true); await sleep(250);
@@ -739,6 +756,16 @@ elements.useHourLimit.addEventListener("click", () => withLock(async () => {
 elements.saveWifi.addEventListener("click", () => withLock(saveWifiSettings));
 elements.geoSource.addEventListener("change", () => { elements.geoSource.dataset.edited = "true"; });
 elements.saveGeo.addEventListener("click", () => withLock(saveCoordinateSequence));
+elements.geoTestSend.addEventListener("click", () => withLock(sendTestGps));
+elements.geoTestStream.addEventListener("change", () => {
+  if (!elements.geoTestStream.checked) { stopTestGps(); return; }
+  withLock(async () => {
+    await sendTestGps();
+    if (elements.geoTestStream.checked) state.testGpsTimer = setInterval(() => {
+      if (!state.busy && !state.otaActive) withLock(sendTestGps);
+    }, 1000);
+  }).finally(() => { if (!state.testGpsTimer) elements.geoTestStream.checked = false; });
+});
 elements.startGeo.addEventListener("click", () => withLock(() => runCommand("GeoStart")));
 elements.stopGeo.addEventListener("click", () => runCommand("GeoStop", true).catch(error => log(error.message, "error")));
 elements.connectBle.addEventListener("click", () => withLock(connectBle));

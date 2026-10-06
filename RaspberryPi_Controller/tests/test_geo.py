@@ -11,15 +11,15 @@ import unittest
 from bridge.config import DEFAULTS, UINT32_MAX
 from bridge.core import Controller
 from bridge.hardware import SimulatedGPIO
-from bridge.mavlink import positions
+from bridge.mavlink import positions, test_position
 from bridge.geo import MAX_POINTS
 from bridge.streams import LineInput
 from test_controller import Clock
 
 
-def frame(ident, payload, system=1, component=1, v2=True, flags=0):
+def frame(ident, payload, system=1, component=1, v2=True, flags=0, sequence=0):
     # Independent bitwise reference encoder, also compatible with the ESP32.
-    header = bytes((len(payload), flags, 0, 0, system, component)) + ident.to_bytes(3, "little") if v2 else bytes((len(payload), 0, system, component, ident))
+    header = bytes((len(payload), flags, 0, sequence, system, component)) + ident.to_bytes(3, "little") if v2 else bytes((len(payload), sequence, system, component, ident))
     crc = 0xffff
     for byte in header + payload + bytes((24 if ident == 24 else 104,)):
         crc ^= byte
@@ -40,6 +40,17 @@ def global_fix(boot, lat=37, lon=-122, **options):
 
 
 class PositionFrames(unittest.TestCase):
+    def test_local_test_encoder_matches_independent_crc_and_field_layout(self):
+        packet = test_position(-37.12345675, 122.12345675, .5, 0xffffffff, 7, 9)
+        self.assertEqual(len(packet), 90)
+        self.assertEqual(packet[:50], frame(24, packet[10:48], system=7, component=9))
+        self.assertEqual(packet[50:], frame(33, packet[60:88], system=7, component=9, sequence=1))
+        self.assertEqual(struct.unpack_from("<ii", packet, 18), (-371234568, 1221234568))
+        self.assertEqual(struct.unpack_from("<I", packet, 44)[0], 500)
+        messages = list(positions(packet))
+        self.assertEqual(messages[0]["fixType"], 3)
+        self.assertEqual(messages[1]["bootMs"], 0xffffffff)
+
     def test_v1_v2_truncation_and_multiple_frames(self):
         for v2 in (False, True):
             msgs = list(positions(b"noise" + gps(v2=v2) + global_fix(25, v2=v2)))
@@ -121,6 +132,94 @@ class GeoTests(unittest.TestCase):
         self.command("RoutineCreate:bad")
         self.command("RoutineAdd:bad:WAIT:0")
         with self.assertRaises(ValueError): self.command("RoutineAdd:bad:START_WAIT:10")
+
+    def test_continuous_persists_runs_beyond_finite_count_and_delays_once(self):
+        self.routine(delay=200, pulse=30, gap=100, repeats="FOREVER")
+        self.assertEqual(self.c.saved["routines"]["dots"]["repeats"], 0)
+        other = Controller(self.config, SimulatedGPIO(self.config), self.clock, watchdog=False)
+        try:
+            self.assertEqual(other.routines.library["dots"]["repeats"], 0)
+            self.assertIsNone(other.routines.running)
+            self.assertFalse(other.dispenser.state()["armed"])
+        finally: other.dispenser.close()
+        self.command("Arm"); self.command("RoutineRun:dots")
+        for _ in range(10): self.tick()
+        self.assertEqual(self.c.dispenser.count, 0)
+        for _ in range(300): self.tick()
+        self.assertGreater(self.c.dispenser.count, 10)
+        self.assertTrue(self.c.routines.state()["continuous"])
+        self.assertEqual(self.c.routines.state()["repeats"], 0)
+        json.dumps(self.c.state(), allow_nan=False)
+        self.c.submit("RoutineStop")
+        for _ in range(100): self.tick()
+        self.assertIsNone(self.c.routines.running)
+        self.assertFalse(self.gpio.active)
+
+    def test_continuous_requires_disabled_expiry_and_honors_pulse_limit(self):
+        self.routine(repeats="forever", pulse=100)
+        self.command("DispenserArmTimeout:10000"); self.command("Arm")
+        with self.assertRaisesRegex(ValueError, "disabled arm expiry"): self.command("RoutineRun:dots")
+        self.assertEqual(self.c.dispenser.count, 0)
+        self.command("Disarm"); self.command("DispenserArmTimeout:0")
+        self.command("DispenserDefaultPulse:50"); self.command("DispenserMaxPulse:50"); self.command("Arm")
+        with self.assertRaisesRegex(ValueError, "maximum"): self.command("RoutineRun:dots")
+        for spec in ("0", "FOREVERx", "-1", "4294967296"):
+            with self.assertRaises(ValueError): self.command("RoutineRepeat:dots:" + spec)
+
+    def test_continuous_counter_saturates_without_replaying_start_delay(self):
+        self.routine(delay=9999, repeats="FOREVER")
+        self.command("Arm"); self.command("RoutineRun:dots")
+        self.c.routines.repeat = UINT32_MAX - 2
+        self.c.routines.index = len(self.c.routines.running["steps"])
+        self.tick()
+        self.assertEqual(self.c.routines.repeat, UINT32_MAX - 1)
+        self.assertEqual(self.c.routines.index, 1)
+        self.tick(); self.assertTrue(self.gpio.active)
+        self.tick(.2)
+        for _ in range(8): self.tick()
+        self.assertEqual(self.c.routines.repeat, UINT32_MAX - 1)
+        self.assertEqual(self.c.routines.state()["delayRemainingMs"], 0)
+
+    def test_continuous_point_holds_sequence_and_stale_fix_still_stops(self):
+        self.routine(pulse=30, repeats="FOREVER")
+        self.plan(points=("37,-122,5,dots", "37,-122,5,dots"))
+        self.fix(); self.command("GeoStart")
+        for index in range(500):
+            if index % 100 == 0: self.fix()
+            self.tick()
+        self.assertEqual(self.c.geo.next, 0)
+        self.assertTrue(self.c.geo.running)
+        self.assertGreater(self.c.dispenser.count, 20)
+        self.tick(3.01)
+        self.assertFalse(self.c.geo.active)
+        self.assertFalse(self.c.dispenser.state()["armed"])
+
+    def test_continuous_interlock_and_stop_aliases_cancel_future_cycles(self):
+        self.routine(pulse=10000, repeats="FOREVER")
+        for stop in ("StopAll", "Disarm", "RoutineStop", "DispenseStop", "GPIO26:OFF"):
+            self.command("Arm"); self.command("RoutineRun:dots")
+            for _ in range(3): self.tick()
+            self.assertTrue(self.gpio.active)
+            self.c.submit(stop)
+            before = self.c.dispenser.count
+            for _ in range(5): self.tick(20)
+            self.assertEqual(self.c.dispenser.count, before)
+            self.assertFalse(self.c.dispenser.state()["armed"])
+        self.command("Arm"); self.command("RoutineRun:dots")
+        for _ in range(3): self.tick()
+        self.gpio.interlock_open = True; self.tick()
+        self.assertIsNone(self.c.routines.running)
+        self.assertFalse(self.gpio.active)
+
+    def test_test_position_requires_mavlink_wifi_and_receiver(self):
+        self.command("GeoSource:API")
+        with self.assertRaisesRegex(ValueError, "MAVLink source"): self.command("GeoTestPosition:37,-122,1")
+        self.command("GeoSource:MAVLINK")
+        with self.assertRaisesRegex(ValueError, "active UDP"): self.command("GeoTestPosition:37,-122,1")
+        for body in ("91,0,1", "0,181,1", "0,0,-.5", "0,0,100001", "NaN,0,1", "0,0,1,0"):
+            with self.assertRaises(ValueError): self.command("GeoTestPosition:" + body)
+        self.c.radio.wifi_enabled = False
+        with self.assertRaisesRegex(ValueError, "enabled Wi-Fi"): self.command("GeoTestPosition:37,-122,1")
 
     def test_preflight_rejects_pulse_and_total_before_output(self):
         self.routine(pulse=500, delay=2000, gap=1000, repeats=3)
@@ -309,6 +408,36 @@ class GeoTests(unittest.TestCase):
 
 
 class PositionHTTPTests(unittest.IsolatedAsyncioTestCase):
+    async def test_test_command_uses_real_udp_and_triggers_ordered_routine(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.bind(("127.0.0.1", 0))
+            self.c.config.update(geo_udp_host="127.0.0.1", geo_udp_port=probe.getsockname()[1])
+        await self.c.geo.open_udp()
+        self.c.execute("RoutineCreate:dot")
+        self.c.execute("RoutineAdd:dot:DISPENSE:10")
+        self.c.execute("RoutineSave:dot")
+        self.c.execute("GeoAdd:37,-122,5,dot"); self.c.execute("GeoSave")
+        # No fix is set synchronously; the normal socket must deliver the packet.
+        self.c.execute("GeoTestPosition:38,-122,1")
+        self.assertIsNone(self.c.geo.fix)
+        for _ in range(30):
+            if self.c.geo.fresh(): break
+            await asyncio.sleep(.01)
+        self.assertTrue(self.c.geo.fresh())
+        self.assertEqual(self.c.geo.fix[:2], (38, -122))
+        self.c.execute("GeoStart"); self.c.geo.tick()
+        self.assertFalse(self.c.geo.running)
+        previous = self.c.geo.boot_ms
+        self.c.execute("GeoTestPosition:37,-122,0")
+        for _ in range(30):
+            if self.c.geo.boot_ms != previous: break
+            await asyncio.sleep(.01)
+        self.c.geo.tick()
+        self.assertTrue(self.c.geo.running)
+        self.assertEqual(self.c.geo.fix[2], .001)
+        self.c.submit("GeoStop")
+        self.assertFalse(self.c.geo.active)
+        self.assertFalse(self.c.dispenser.state()["armed"])
     async def asyncSetUp(self):
         from aiohttp.test_utils import TestClient, TestServer
         from bridge.server import create_app

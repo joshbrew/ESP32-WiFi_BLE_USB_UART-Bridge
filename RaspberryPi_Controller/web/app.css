@@ -3,6 +3,7 @@
 .formGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 12px 0; }
 .formGrid label { display: grid; align-content: start; gap: 5px; font-size: .8rem; color: var(--muted); }
 .formGrid input { width: 100%; }
+#geoTestPosition { width: 100%; }
 .editor { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
 .hint + .hint, .inlineCommands + .hint { margin-top: 8px; }
 :root {

@@ -118,6 +118,7 @@ RoutineAdd:<name>:WAIT:<milliseconds>
 RoutineAdd:<name>:WAIT_IDLE
 RoutineAdd:<name>:COMMAND:<allowed-hardware-command>
 RoutineRepeat:<name>:<count>
+RoutineRepeat:<name>:FOREVER
 RoutineSave:<name>
 RoutineRun:<name>
 RoutineStop
@@ -130,6 +131,10 @@ RoutineErase:<name>
 Limits are configured in `AppConfig.h`. The normal build provides four routine
 slots and ten steps per routine. Repeat counts accept 1–4294967295. Routine names contain up to 15
 letters, digits, hyphens, or underscores.
+`RoutineRepeat:name:FOREVER` saves continuous mode: repeat the on/off cycle until
+stopped. The console's **Repeat until stopped** checkbox sets this option and
+disables the numeric repeat field. The saved library and status report repeats
+as 0 for continuous mode. Disable optional arming expiry before starting it.
 `START_WAIT` is allowed only as the first step and runs once before all repeats;
 `WAIT` runs each repetition. Both accept 0–4294967295 ms. The web console shows
 saved routines as named Run buttons. Before starting, the firmware checks each
@@ -164,7 +169,7 @@ self-test, transport-send, and nested routine commands.
 
 ## Coordinate-triggered routines
 
-Select `GeoSource:MAVLINK` or `GeoSource:API`, build up to 12 ordered points with
+Select `GeoSource:MAVLINK` or `GeoSource:API`, build up to 256 ordered points with
 `GeoAdd:latitude,longitude,radiusMeters,savedRoutineName`, then `GeoSave`.
 `GeoStart` explicitly enables automatic arming/routine execution at each next
 point; it starts at point 1 and requires a fresh position. `GeoStop` stops output
@@ -172,6 +177,9 @@ and the sequence. `GeoStatus`, `GeoList`, `GeoLoad`, `GeoClear`, and
 `GeoResetPosition` provide readback/editing and source-clock recovery.
 `GeoPosition:latitude,longitude,accuracyMeters,ageMs` supplies custom fixes;
 use `POST /api/position` with those four plain-text fields for continuous input.
+`GeoTestPosition:latitude,longitude,accuracyMeters` sends MAVLink UDP to the
+ESP32 itself for testing without a drone. Select MAVLink and enable Wi-Fi first.
+The console offers manual GPS input and a one-second repeat feed for long tests.
 Position loss for over three seconds stops the sequence. See the
 [position integration guide](docs/COORDINATE_ROUTINES.md) for MAVLink, proprietary
 provider contracts, timing behavior, and setup examples.

@@ -5,6 +5,10 @@ latitude, longitude, radius in meters and a saved routine name. **GeoStart / Sta
 sequence — auto-arm** authorizes automatic arming at each next point. A manual
 routine still needs a separate Arm. GeoStart begins at point 1 every time.
 The plan/source survive reboot; enabled state, position and progress do not.
+**Repeat until stopped** saves continuous mode (`RoutineRepeat:name:FOREVER`,
+stored repeats=0). Initial delay runs once and gaps repeat normally. Disable arm
+expiry before running a continuous dispenser routine. A continuous routine at a
+coordinate holds that point until stopped; choose finite repeats to advance.
 
 The Pi requires the dispenser profile, a saved nonempty plan, fresh aircraft
 position, healthy interlock and idle output. It preflights every saved point
@@ -46,7 +50,7 @@ Submit commands separately or in batches of at most eight. Supply fresh position
 before GeoStart. The console sequences longer plan builds automatically.
 Large HTTP plans save in batches of eight, with progress and bounded retries when
 admission is busy. The saved plan has its own 256 KiB allowance; the Pi's capacity
-is larger than the current ESP32's twelve-point storage. HTTP state returns the
+is larger than the current ESP32's 256-point storage. HTTP state returns the
 full plan. Stream status remains compact: `@GEO:offset` reads up to sixteen points
 with offset/count/points/next fields, and `GeoList:offset` prints the same page.
 The BLE editor uses pages on **Load saved sequence**, avoiding a full-plan status
@@ -58,12 +62,34 @@ datagram, with a 1024-byte datagram limit. It verifies CRC extras, restores MAVL
 and requires strictly advancing GLOBAL_POSITION_INT time_boot_ms, with wrap
 handling. Repeated/reordered frames cannot refresh a fix. It rejects signing and
 unknown incompatibility flags; there is no signature-verification implementation.
-Only positions are received: no heartbeats, stream requests, mission uploads or
-flight controls are transmitted. It does not authenticate an unsigned UDP sender.
+No heartbeats, stream requests, mission uploads or flight controls are transmitted.
+The explicit test command below sends only position reports to the Pi's own
+receiver. It does not authenticate an unsigned UDP sender.
 
 After a flight-controller reboot, stop the sequence and send `GeoResetPosition`
 to clear the previous boot clock before supplying fresh GPS/global reports.
 Radio profiles that disable Wi-Fi also disable MAVLink reception.
+
+## Manual GPS test without a drone
+
+Select/save MAVLink, stop real telemetry, then expand **Test GPS through MAVLink**.
+Enter latitude, longitude and accuracy meters. **Send test GPS position** sends
+actual MAVLink 2 GPS_RAW_INT and GLOBAL_POSITION_INT frames to the Pi's bound
+UDP address/port. Only the ordinary socket receiver, CRC/ID checks and mission
+processing can publish the fix or trigger output. API mode cannot be overwritten.
+
+Command equivalent: `GeoTestPosition:37.4219999,-122.0840575,1`. Accuracy accepts
+-1 unknown or 0–100000 m; zero uses 1 mm in the test packet. Wi-Fi must be enabled
+and the UDP receiver running. The Pi also accepts loopback UDP in AP mode; a
+station connection is not required.
+
+Begin outside the next point radius, send a fix, then explicitly start the
+sequence. Move the entered coordinate inside and send again to trigger its
+routine. **Keep sending every second** resends the currently entered coordinate
+for delays/routines longer than three seconds. Stop/disarm controls stop this
+feed too. Disconnect, source editing, page navigation or an application update
+also ends it. If updates cease, the normal stale-position rule stops the sequence.
+Start in simulation and repeat on physical hardware with the actuator disconnected.
 
 Field layouts: [MAVLink common messages](https://mavlink.io/en/messages/common.html)
 and [packet serialization](https://mavlink.io/en/guide/serialization.html).
