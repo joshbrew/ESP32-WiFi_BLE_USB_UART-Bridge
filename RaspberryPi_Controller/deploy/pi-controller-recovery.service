@@ -1,0 +1,11 @@
+[Unit]
+Description=Recover an interrupted Pi controller update
+Before=pi-controller.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 -I /usr/local/lib/pi-controller/admin.py --recover-update
+
+[Install]
+WantedBy=multi-user.target

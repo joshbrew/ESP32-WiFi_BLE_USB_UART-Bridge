@@ -15,7 +15,7 @@
   DispenserSave, or a named payload profile selected at runtime, still wins at
   boot after a firmware update. Check DispenserStatus for the active maxMs and
   armMs. To raise an older saved 2000 ms limit, disarm, send
-  DispenserArmTimeout:120000 followed by DispenserMaxPulse:60000, then save with
+  DispenserArmTimeout:0 followed by DispenserMaxPulse:0, then save with
   DispenserSave or PayloadProfileSave:<active-name>. DispenserErase and reboot
   instead restores the compiled defaults; named profile records remain until
   PayloadProfileDelete or PayloadProfileEraseAll is used.
@@ -35,19 +35,14 @@
 // ACTIVE_HIGH 1 means HIGH activates the switch; use 0 for active-low hardware.
 #define DRONE_CFG_DISPENSER_PIN 26
 #define DRONE_CFG_DISPENSER_ACTIVE_HIGH 1
-// All times are milliseconds: 60000 = 60 seconds; 120000 = 2 minutes.
+// All times are milliseconds: 3600000 = 60 minutes.
 // DEFAULT is used by the legacy GPIO26:ON command, not by Dispense:milliseconds.
-// MAX is the hard upper bound for manual and routine pulses. A saved profile
-// can choose a lower maximum but cannot exceed this compiled ceiling.
-// A pulse must fit entirely inside the time remaining since the last Arm.
-// Keep the arming window longer than MAX so a full-length pulse can start.
-// If too little time remains, send Arm again before requesting the pulse.
+// MAX and ARM_TIMEOUT are optional limits; 0 disables each limit.
+// Durations use unsigned 32-bit milliseconds (up to about 49.7 days per step).
 #define DRONE_CFG_DISPENSER_DEFAULT_PULSE_MS 250UL
-#define DRONE_CFG_DISPENSER_MAX_PULSE_MS 60000UL
-// Arm automatically expires after this time and never survives a restart.
-// This is a readiness window, not an output-on duration. Saved profiles may
-// choose a shorter window but cannot extend this compiled ceiling.
-#define DRONE_CFG_DISPENSER_ARM_TIMEOUT_MS 120000UL
+#define DRONE_CFG_DISPENSER_MAX_PULSE_MS 0UL
+// Arm never survives a restart. A nonzero value enables automatic expiry.
+#define DRONE_CFG_DISPENSER_ARM_TIMEOUT_MS 0UL
 
 // OPTIONAL EXTERNAL INTERLOCK
 // Set the pin to a valid GPIO input when a physical or flight-controller enable

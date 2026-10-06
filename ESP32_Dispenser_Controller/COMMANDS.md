@@ -24,7 +24,8 @@ Rules:
   there is not enough time left.
 - `Dispense` is rejected while another pulse is active; it cannot extend an
   activation by repeatedly resetting the stop time.
-- `DispenseStop` ends the current pulse but leaves the remaining arm window open.
+- `DispenseStop` ends the pulse, closes the arm window, and cancels any active
+  routine or coordinate sequence. It cannot allow a later repeat to restart output.
 - `Disarm` ends the pulse and closes the arm window.
 - `StopAll` ends the pulse, disarms, cancels the active routine, and stops any
   optional advanced hardware.
@@ -40,6 +41,12 @@ DispenserOff
 ```
 
 There is no normal indefinite-on dispenser command.
+Maximum pulse and arming expiry default to disabled (0). Saved settings may
+impose optional limits; `DispenserMaxPulse:0` and `DispenserArmTimeout:0` disable
+them. Pulse/delay/gap values use 32-bit milliseconds, up to 4294967295 ms.
+Repeat counts accept 1–4294967295, with no total routine runtime cap.
+Send standalone stop/disarm commands
+separately from subsequent settings: a stop clears queued commands.
 
 ## Dispenser configuration
 
@@ -106,6 +113,7 @@ PayloadProfileList
 ```text
 RoutineCreate:<name>
 RoutineAdd:<name>:DISPENSE:<milliseconds>
+RoutineAdd:<name>:START_WAIT:<milliseconds>
 RoutineAdd:<name>:WAIT:<milliseconds>
 RoutineAdd:<name>:WAIT_IDLE
 RoutineAdd:<name>:COMMAND:<allowed-hardware-command>
@@ -120,8 +128,14 @@ RoutineErase:<name>
 ```
 
 Limits are configured in `AppConfig.h`. The normal build provides four routine
-slots, ten steps per routine, and twenty repeats. Routine names contain up to 15
+slots and ten steps per routine. Repeat counts accept 1–4294967295. Routine names contain up to 15
 letters, digits, hyphens, or underscores.
+`START_WAIT` is allowed only as the first step and runs once before all repeats;
+`WAIT` runs each repetition. Both accept 0–4294967295 ms. The web console shows
+saved routines as named Run buttons. Before starting, the firmware checks each
+pulse against the active payload limit and total duration against the remaining
+arming window when these optional limits are nonzero. There is no total-runtime
+cap. Stop and interlock checks remain active throughout a routine.
 
 A routine must be explicitly saved after editing. Starting a routine does not
 arm the dispenser; send `Arm` separately. A routine also cannot start while its
@@ -147,6 +161,20 @@ RoutineRun:dots
 The `COMMAND:` allowlist supports bounded dispenser commands and selected
 stepper/DAC actions. It rejects arming, reboot, radio, configuration, erase,
 self-test, transport-send, and nested routine commands.
+
+## Coordinate-triggered routines
+
+Select `GeoSource:MAVLINK` or `GeoSource:API`, build up to 12 ordered points with
+`GeoAdd:latitude,longitude,radiusMeters,savedRoutineName`, then `GeoSave`.
+`GeoStart` explicitly enables automatic arming/routine execution at each next
+point; it starts at point 1 and requires a fresh position. `GeoStop` stops output
+and the sequence. `GeoStatus`, `GeoList`, `GeoLoad`, `GeoClear`, and
+`GeoResetPosition` provide readback/editing and source-clock recovery.
+`GeoPosition:latitude,longitude,accuracyMeters,ageMs` supplies custom fixes;
+use `POST /api/position` with those four plain-text fields for continuous input.
+Position loss for over three seconds stops the sequence. See the
+[position integration guide](docs/COORDINATE_ROUTINES.md) for MAVLink, proprietary
+provider contracts, timing behavior, and setup examples.
 
 ## Core
 
@@ -223,6 +251,8 @@ WiFiFallbackAP:ON
 WiFiFallbackAP:OFF
 WiFiTxPower:LOW
 WiFiTxPower:MAX
+WiFiLR:ON
+WiFiLR:OFF
 WiFiTxPower:<supported-dBm>
 WiFiStaSSID:<ssid>
 WiFiStaPassword:<password>
@@ -235,6 +265,12 @@ ConfigLoad
 ConfigDefaults
 ConfigErase
 ```
+
+`WiFiLR:ON` selects LR-only Wi-Fi on AP and STA. Both ends must be LR-capable
+ESP32s; ordinary phones and routers cannot join. OFF is the default. Use
+`ConfigApply` to restart Wi-Fi and `ConfigSave` to persist the setting.
+`RadioStatus` distinguishes desired and active LR. See the
+[LR and BLE relay guide](../docs/WIFI_LR.md) for setup and USB recovery.
 
 ## Explicit transport output
 

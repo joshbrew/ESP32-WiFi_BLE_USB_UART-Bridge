@@ -14,11 +14,12 @@ static const char *const HELP_ROWS[] = {
   "Core: Ping Help Status ConfigRead USBStatus HeapStatus StopAll Reboot",
   "Payload: Arm Disarm Dispense:milliseconds DispenseStop DispenserStatus",
   "Routines: RoutineCreate RoutineAdd RoutineRepeat RoutineSave RoutineRun RoutineStop RoutineList RoutineShow RoutineErase",
+  "Coordinates: GeoSource GeoClear GeoAdd GeoSave GeoLoad GeoStart GeoStop GeoStatus GeoList GeoResetPosition GeoPosition",
   "Boot/test: ProductionMode DebugMode BootModeStatus SelfTestStart SelfTestStatus SelfTestResume SelfTestAbort SelfTestClear",
   "Indicators: IndicatorStatus IndicatorTest IndicatorConnectionTest IndicatorActivityTest",
   "Send: Send:text SendBLE:text SendWiFi:text SendUSB:text SendSerial:text SendUART:text SendSPP:text SendStatus",
   "Radio: ModeWiFi ModeWiFiBLE ModeWiFiBLEP ModeBLE ModeBTSerial ModeUSB RadioBoot:PROFILE RadioStatus BLEStatus BLEWebHandoff BLEWebCancel",
-  "Wi-Fi/config: WiFiMode WiFiTxPower WiFiApSSID WiFiApPassword WiFiStaSSID WiFiStaPassword WiFiStaClear ConfigSave ConfigLoad ConfigApply ConfigDefaults ConfigErase",
+  "Wi-Fi/config: WiFiMode WiFiLR WiFiTxPower WiFiApSSID WiFiApPassword WiFiStaSSID WiFiStaPassword WiFiStaClear ConfigSave ConfigLoad ConfigApply ConfigDefaults ConfigErase",
 };
 
 constexpr size_t HELP_ROW_COUNT = sizeof(HELP_ROWS) / sizeof(HELP_ROWS[0]);
@@ -36,6 +37,7 @@ CommandRouter::CommandRouter(
 ) : events_(events),
     addon_(addon),
     routines_(routines),
+    geo_(events, addon, routines),
     bridge_(bridge),
     radios_(radios),
     transports_(transports),
@@ -47,6 +49,7 @@ CommandRouter::CommandRouter(
     rebootAtMs_(0) {}
 
 void CommandRouter::begin() {
+  geo_.begin();
   Preferences preferences;
   if (preferences.begin(SYSTEM_PREFERENCES_NAMESPACE, true)) {
     productionMode_ = preferences.getBool(
@@ -75,7 +78,10 @@ void CommandRouter::attachSelfTest(CommandSelfTest *selfTest) {
 
 bool CommandRouter::canAccept(const String &line) const {
   const String command = normalize(line);
-  return command.length() == 0 || routines_.recognizesCommand(command) || addon_.canAcceptCommand(command);
+  return command.length() == 0 || TextUtil::startsWithIgnoreCase(command, "Geo") || routines_.recognizesCommand(command) || addon_.canAcceptCommand(command);
+}
+bool CommandRouter::positionThunk(void *context, const String &body) {
+  return context && static_cast<CommandRouter *>(context)->geo_.submitPosition(body);
 }
 
 void CommandRouter::submit(
@@ -96,7 +102,9 @@ void CommandRouter::submit(
   );
 
   const bool emergencyStop = command.equalsIgnoreCase("StopAll");
-  if (rebootPending_ && !emergencyStop) {
+  const bool safetyCommand = emergencyStop || command.equalsIgnoreCase("RoutineStop") ||
+    command.equalsIgnoreCase("GeoStop") || command.equalsIgnoreCase("DispenseStop") || command.equalsIgnoreCase("Disarm");
+  if (rebootPending_ && !safetyCommand) {
     error(source, requestId, "controller reboot is pending; command ignored");
     return;
   }
@@ -210,6 +218,7 @@ void CommandRouter::submit(
   }
 
   if (emergencyStop) {
+    geo_.stop("StopAll");
     if (dispatcher_ != nullptr) {
       dispatcher_->clearPending(false);
     }
@@ -223,6 +232,7 @@ void CommandRouter::submit(
   }
 
   if (command.equalsIgnoreCase("Reboot")) {
+    geo_.stop("controller reboot");
     if (dispatcher_ != nullptr) {
       dispatcher_->clearPending();
     }
@@ -273,7 +283,7 @@ void CommandRouter::submit(
     return;
   }
 
-  if (routines_.isActive() && command.equalsIgnoreCase("SelfTestStart")) {
+  if ((routines_.isActive() || geo_.isActive()) && command.equalsIgnoreCase("SelfTestStart")) {
     error(source, requestId, "stop the active routine before starting the persistent self-test");
     return;
   }
@@ -282,12 +292,26 @@ void CommandRouter::submit(
     return;
   }
 
+  if (command.equalsIgnoreCase("GeoStop") || command.equalsIgnoreCase("RoutineStop") ||
+      command.equalsIgnoreCase("DispenseStop") || command.equalsIgnoreCase("Disarm")) {
+    geo_.stop("operator stop");
+    if (dispatcher_ != nullptr) dispatcher_->clearPending(false);
+    routines_.stop(source, requestId, "operator stop", true);
+    return;
+  }
+  if (geo_.handleCommand(command, source, requestId)) return;
+  if (geo_.isActive() && (TextUtil::startsWithIgnoreCase(command, "RoutineCreate:") ||
+      TextUtil::startsWithIgnoreCase(command, "RoutineAdd:") || TextUtil::startsWithIgnoreCase(command, "RoutineRepeat:") ||
+      TextUtil::startsWithIgnoreCase(command, "RoutineErase:") || TextUtil::startsWithIgnoreCase(command, "RoutineRun:"))) {
+    error(source, requestId, "stop the coordinate sequence before editing or manually running routines");
+    return;
+  }
   if (routines_.handleCommand(command, source, requestId)) {
     return;
   }
 
   if (
-    routines_.isActive() &&
+    (routines_.isActive() || geo_.isActive()) &&
     source != CommandSource::INTERNAL &&
     addon_.blocksExternalCommandDuringRoutine(command)
   ) {
@@ -309,6 +333,8 @@ void CommandRouter::submit(
 
 void CommandRouter::service() {
   routines_.service();
+  geo_.service();
+  if (geo_.consumeSafetyStop()) forceHardwareSafe("coordinate sequence stopped");
 
   if (indicators_.consumeSelfTestCompleted()) {
     events_.publish(
@@ -327,6 +353,7 @@ void CommandRouter::service() {
 }
 
 bool CommandRouter::forceHardwareSafe(const String &reason) {
+  geo_.stop(reason);
   if (dispatcher_ != nullptr) {
     dispatcher_->clearPending();
   }
@@ -370,6 +397,7 @@ String CommandRouter::stateJson() const {
   json += ",\"debugStartupTestsEnabled\":" + TextUtil::jsonBool(!productionMode_);
   addon_.appendStateJson(json, false);
   json += ",\"routine\":" + routines_.stateJson(false);
+  json += ",\"geo\":" + geo_.stateJson(false);
   json += ",\"send\":" + bridge_.stateJson();
   json += ",\"radio\":" + radios_.stateJson();
   json += ",\"transports\":" + transports_.stateJson();
@@ -392,6 +420,7 @@ String CommandRouter::webStateJson() const {
   json += ",\"bootMode\":\"" + bootModeText() + "\"";
   addon_.appendStateJson(json, true);
   json += ",\"routine\":" + routines_.stateJson(true);
+  json += ",\"geo\":" + geo_.stateJson(true);
   json += ",\"send\":" + bridge_.stateJson();
   json += ",\"radio\":" + radios_.webStateJson();
   json += ",\"queue\":" + String(dispatcher_ != nullptr ? dispatcher_->webStateJson() : "{}");
@@ -416,6 +445,11 @@ String CommandRouter::webStateThunk(void *context) {
 
 String CommandRouter::normalize(String command) const {
   command.trim();
+  if (command.equalsIgnoreCase("DispenserDisarm")) return "Disarm";
+  if (command.equalsIgnoreCase("DispenserOff")) return "DispenseStop";
+#if APP_DRONE_DISPENSER_ADDON_ENABLED
+  if (command.equalsIgnoreCase("GPIO26:OFF")) return "DispenseStop";
+#endif
   return command;
 }
 

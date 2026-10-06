@@ -37,10 +37,10 @@
 #define DRONE_CFG_DISPENSER_DEFAULT_PULSE_MS 250UL
 #endif
 #ifndef DRONE_CFG_DISPENSER_MAX_PULSE_MS
-#define DRONE_CFG_DISPENSER_MAX_PULSE_MS 60000UL
+#define DRONE_CFG_DISPENSER_MAX_PULSE_MS 0UL
 #endif
 #ifndef DRONE_CFG_DISPENSER_ARM_TIMEOUT_MS
-#define DRONE_CFG_DISPENSER_ARM_TIMEOUT_MS 120000UL
+#define DRONE_CFG_DISPENSER_ARM_TIMEOUT_MS 0UL
 #endif
 #ifndef DRONE_CFG_INTERLOCK_PIN
 #define DRONE_CFG_INTERLOCK_PIN -1
@@ -201,7 +201,7 @@ constexpr uint32_t AUX_UART_BAUD = 115200;
 // USB-to-UART bridge and cannot be changed by ESP32 application firmware.
 constexpr const char *USB_SERIAL_NAME = "Drone-Gel-Controller";
 constexpr const char *FIRMWARE_NAME = "Drone Gel Dispenser Controller";
-constexpr const char *FIRMWARE_VERSION = "dispenser-build";
+constexpr const char *FIRMWARE_VERSION = "2026-10-06-routines-lr-geo";
 
 // A fresh or erased controller always uses the safe production boot policy.
 // DebugMode can still be selected explicitly for a supervised bench session.
@@ -280,7 +280,7 @@ constexpr uint32_t BLE_IDLE_COMMAND_SUBMIT_MS = 140;
 constexpr uint32_t BLE_TX_MIN_FREE_HEAP_BYTES = 10500;
 constexpr uint32_t BLE_TX_MIN_LARGEST_BLOCK_BYTES = 5000;
 constexpr uint32_t BLE_TX_PRESSURE_WARNING_INTERVAL_MS = 5000;
-constexpr size_t BLE_DIRECT_OUTPUT_BUFFER_BYTES = 1152;
+constexpr size_t BLE_DIRECT_OUTPUT_BUFFER_BYTES = 2304;
 // BluetoothSerial.begin() returns before the asynchronous SPP init callback has
 // necessarily completed. Do not call GAP or BLE APIs until isReady() succeeds.
 constexpr uint32_t BLUETOOTH_READY_TIMEOUT_MS = 5000;
@@ -320,12 +320,12 @@ constexpr size_t EVENT_TEXT_BYTES = 192;
 constexpr uint8_t WEB_EVENT_DEFAULT_LIMIT = 4;
 constexpr uint8_t WEB_EVENT_MAX_LIMIT = 6;
 constexpr uint32_t WEB_STATE_CACHE_INTERVAL_MS = 800;
-constexpr size_t WEB_STATE_JSON_BUDGET_BYTES = 1408;
+constexpr size_t WEB_STATE_JSON_BUDGET_BYTES = 2048;
 constexpr size_t WEB_EVENT_JSON_BUDGET_BYTES = 768;
 // Embedded portal responses are paced from PROGMEM so Wi-Fi/BLE coexistence
 // never retains an entire TCP window of page data.
 constexpr size_t HTTP_ASSET_CHUNK_BYTES = 512;
-constexpr size_t HTTP_JSON_RESPONSE_BUDGET_BYTES = 1664;
+constexpr size_t HTTP_JSON_RESPONSE_BUDGET_BYTES = 2304;
 constexpr uint16_t HTTP_COMMAND_MAX_BYTES = 2048;
 // The portal admits only a small number of simultaneous requests. A browser
 // that disconnects releases its slot through AsyncWebServerRequest::onDisconnect.
@@ -381,10 +381,12 @@ constexpr uint8_t ROUTINE_NAME_BYTES = 15;
 // Keeping this bounded saves about 1.25 KiB of always-resident RAM across the
 // four fixed routine slots compared with the former general command length.
 constexpr uint8_t ROUTINE_COMMAND_BYTES = 48;
-constexpr uint8_t ROUTINE_MAX_REPEATS = 20;
-constexpr uint32_t ROUTINE_MAX_WAIT_MS = 120000;
-constexpr uint32_t ROUTINE_IDLE_WAIT_TIMEOUT_MS = 120000;
-constexpr uint32_t ROUTINE_MAX_RUN_MS = 300000;
+constexpr uint32_t ROUTINE_MAX_WAIT_MS = UINT32_MAX; // Timer representation, not a routine cap.
+// MAVLink common position receiver; forward whole UDP frames to this port.
+constexpr uint16_t GEO_MAX_POINTS = 256;
+constexpr uint16_t GEO_MAVLINK_UDP_PORT = 14550;
+constexpr uint8_t GEO_MAVLINK_SYSTEM_ID = 1;
+constexpr uint8_t GEO_MAVLINK_COMPONENT_ID = 1;
 
 // Student-setting guardrails. These cost no flash or RAM and turn unsafe pin
 // or timing combinations into clear compiler errors instead of field failures.
@@ -422,16 +424,12 @@ static_assert(
   "Default dispenser pulse must be positive."
 );
 static_assert(
-  !ENABLE_DRONE_DISPENSER_ADDON || DISPENSER_DEFAULT_PULSE_MS <= DISPENSER_MAX_PULSE_MS,
+  !ENABLE_DRONE_DISPENSER_ADDON || DISPENSER_MAX_PULSE_MS == 0 || DISPENSER_DEFAULT_PULSE_MS <= DISPENSER_MAX_PULSE_MS,
   "Default dispenser pulse exceeds the maximum pulse limit."
 );
 static_assert(
-  !ENABLE_DRONE_DISPENSER_ADDON || DISPENSER_MAX_PULSE_MS <= DISPENSER_ARM_TIMEOUT_MS,
+  !ENABLE_DRONE_DISPENSER_ADDON || DISPENSER_ARM_TIMEOUT_MS == 0 || DISPENSER_MAX_PULSE_MS <= DISPENSER_ARM_TIMEOUT_MS,
   "Dispenser arm timeout must accommodate one maximum-length pulse."
-);
-static_assert(
-  !ENABLE_DRONE_DISPENSER_ADDON || DISPENSER_ARM_TIMEOUT_MS < 0x80000000UL,
-  "Dispenser arm timeout must remain within the wrap-safe interval."
 );
 static_assert(
   !ENABLE_DRONE_DISPENSER_ADDON || PIN_DISPENSER_INTERLOCK == -1 ||
@@ -532,10 +530,6 @@ static_assert(ROUTINE_MAX_COUNT > 0 && ROUTINE_MAX_STEPS > 0, "Routine capacity 
 static_assert(
   ROUTINE_COMMAND_BYTES <= COMMAND_MAX_BYTES,
   "Stored routine commands cannot exceed the dispatcher command limit."
-);
-static_assert(
-  ROUTINE_MAX_WAIT_MS < 0x80000000UL && ROUTINE_MAX_RUN_MS < 0x80000000UL,
-  "Routine deadlines must remain within the signed wrap-safe interval."
 );
 
 constexpr uint8_t MOTOR_COMMAND_QUEUE_CAPACITY = 8;

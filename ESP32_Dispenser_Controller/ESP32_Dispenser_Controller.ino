@@ -139,6 +139,7 @@ void setup() {
     &dispatcher,
     CommandRouter::webStateThunk,
     &router);
+  webPortal.configurePositionSubmitter(CommandRouter::positionThunk, &router);
 
   Serial.println("[BOOT] starting status indicators");
   Serial.flush();

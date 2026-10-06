@@ -14,7 +14,9 @@ for (const id of [
   "buildVersion", "liveDot", "liveText", "payloadState", "payloadMeta",
   "armDispenser", "disarmDispenser", "pulseDuration", "dispensePulse",
   "stopDispense", "routineName", "routinePulse", "routineGap",
-  "routineRepeats", "saveRoutine", "runRoutine", "stopRoutine",
+  "routineRepeats", "routineDelay", "savedRoutines", "saveRoutine", "runRoutine", "stopRoutine", "useHourLimit",
+  "wifiRole", "wifiSsid", "wifiPassword", "wifiProtocol", "wifiOpenNetwork", "saveWifi", "wifiSetupStatus",
+  "geoPoints", "geoSource", "geoStatus", "saveGeo", "startGeo", "stopGeo",
   "routineSummary", "connectBle", "disconnectBle", "transportSummary",
   "compiledSummary", "commandPreset", "commandInput", "sendCommands",
   "stopAll", "clearLog", "log", "statusSummary", "statusGrid",
@@ -40,7 +42,9 @@ const state = {
   nextStateAt: 0,
   retryAt: 0,
   httpFailures: 0,
-  httpTail: Promise.resolve()
+  httpTail: Promise.resolve(),
+  bleWriteTail: Promise.resolve(),
+  commandGeneration: 0
 };
 
 const ACTION_GROUPS = [
@@ -85,6 +89,12 @@ const ACTION_GROUPS = [
     ["Wi-Fi + BLE persistent", "ModeWiFiBLEP", "wifi+ble", true],
     ["BLE only", "ModeBLE", "ble", true], ["USB only", "ModeUSB", null, true],
     ["Radio status", "RadioStatus"]
+  ]],
+  ["Wi-Fi LR", [
+    ["Enable LR (ESP32 peers only)", "WiFiLR:ON", "wifi", true],
+    ["Use ordinary Wi-Fi", "WiFiLR:OFF", "wifi"],
+    ["Apply Wi-Fi settings", "ConfigApply", "wifi", true],
+    ["Save radio settings", "ConfigSave"]
   ]],
   ["Self-test", [
     ["Start sweep", "SelfTestStart", null, true], ["Print status", "SelfTestStatus"],
@@ -198,21 +208,26 @@ function updateActions() {
   const addon = state.latest?.addon || {};
   const dispenser = state.latest?.dispenser || {};
   const routine = state.latest?.routine || {};
+  const geo = state.latest?.geo || {};
   for (const item of document.querySelectorAll("[data-command], option[data-requires]")) {
     const command = item.dataset.command || item.value || "";
     let disabled = state.busy || !compiled(item.dataset.requires);
+    if (/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm)$/i.test(command)) disabled = false;
     if (/^Arm$/i.test(command) && dispenser.armed && !dispenser.faulted) disabled = true;
-    if (/^Disarm$/i.test(command) && !dispenser.armed && !dispenser.faulted && !dispenser.dispensing) disabled = true;
     if (/^Dispense:/i.test(command) && (!dispenser.armed || dispenser.faulted || dispenser.dispensing)) disabled = true;
     if (routine.active && (/^(?:Arm|DispenserArm)$/i.test(command) || /^Dispense:/i.test(command))) disabled = true;
     if (/^PayloadProfile(?:Save|Use|Delete):/i.test(command) && (dispenser.armed || dispenser.dispensing || routine.active)) disabled = true;
-    if (/^DispenseStop$/i.test(command) && !dispenser.dispensing) disabled = true;
-    if (/^RoutineStop$/i.test(command) && !routine.active) disabled = true;
+    if (/^RoutineStop$/i.test(command) && !routine.active && !geo.active) disabled = false;
     item.disabled = disabled;
   }
-  elements.dispensePulse.disabled = state.busy || !dispenser.armed || dispenser.faulted || dispenser.dispensing || routine.active;
-  elements.saveRoutine.disabled = state.busy || routine.active || addon.dispenser !== true;
-  elements.runRoutine.disabled = state.busy || addon.dispenser !== true || !dispenser.armed || dispenser.faulted || routine.active;
+  elements.dispensePulse.disabled = state.busy || !dispenser.armed || dispenser.faulted || dispenser.dispensing || routine.active || geo.active;
+  elements.saveRoutine.disabled = state.busy || routine.active || geo.active || addon.dispenser !== true;
+  elements.runRoutine.disabled = state.busy || addon.dispenser !== true || !dispenser.armed || dispenser.faulted || routine.active || geo.active;
+  for (const button of elements.savedRoutines.querySelectorAll("button")) button.disabled = state.busy || !dispenser.armed || dispenser.faulted || routine.active || geo.active;
+  elements.useHourLimit.disabled = state.busy || dispenser.armed || dispenser.dispensing || routine.active || geo.active || addon.dispenser !== true;
+  elements.saveGeo.disabled = state.busy || geo.active || addon.dispenser !== true;
+  elements.startGeo.disabled = state.busy || geo.active || !geo.saved || !geo.count || !geo.fresh || routine.active || addon.dispenser !== true;
+  elements.saveWifi.disabled = state.busy || routine.active || geo.active;
   if (elements.commandPreset.selectedOptions[0]?.disabled) elements.commandPreset.selectedIndex = 0;
 }
 
@@ -244,7 +259,7 @@ function renderState(data) {
   const channels = data.dac?.channels || [];
   const queue = data.queue || {};
   const test = data.selfTest || {};
-  const wifi = radio.wifiCompiled === false ? "not compiled" : `${radio.wifiState || "off"} ${radio.ip || ""}`.trim();
+  const wifi = radio.wifiCompiled === false ? "not compiled" : `${radio.wifiLRActive ? "LR · " : ""}${radio.wifiState || "off"} ${radio.ip || ""}`.trim();
   const ble = radio.bleCompiled === false ? "not compiled" : send.ble ? "connected + TX" : send.bleConnected ? "connected, notifications off" : radio.bleRunning ? "advertising" : "off";
   const profile = radio.bootModeActive || data.bootMode || "?";
 
@@ -255,14 +270,22 @@ function renderState(data) {
   elements.payloadState.textContent = payload;
   elements.payloadState.className = `stateBadge ${dispenser.faulted ? "fault" : dispenser.dispensing ? "active" : dispenser.armed ? "armed" : "safe"}`;
   elements.payloadMeta.textContent = addon.dispenser
-    ? `GPIO${dispenser.pin} · output ${dispenser.dispensing ? "ACTIVE" : "inactive"} · max pulse ${dispenser.maxPulseMs || 0} ms · pulse ${dispenser.remainingMs || 0} ms remaining · arm ${dispenser.armRemainingMs || 0} ms remaining${dispenser.interlockConfigured ? ` · interlock ${dispenser.interlockOpen ? "open" : "CLOSED"}` : ""}`
+    ? `GPIO${dispenser.pin} · output ${dispenser.dispensing ? "ACTIVE" : "inactive"} · max pulse ${dispenser.maxPulseMs ? `${dispenser.maxPulseMs} ms` : "unlimited"} · pulse ${dispenser.remainingMs || 0} ms remaining · arm ${dispenser.armTimeoutMs ? `${dispenser.armRemainingMs || 0} ms remaining` : "no expiry"}${dispenser.interlockConfigured ? ` · interlock ${dispenser.interlockOpen ? "open" : "CLOSED"}` : ""}`
     : "This build uses the optional advanced stepper/DAC hardware profile.";
-  const maxPulseMs = dispenser.maxPulseMs || 60000;
-  elements.pulseDuration.max = String(maxPulseMs);
-  elements.routinePulse.max = String(maxPulseMs);
+  for (const input of [elements.pulseDuration, elements.routinePulse]) {
+    if (dispenser.maxPulseMs) input.max = String(dispenser.maxPulseMs);
+    else input.removeAttribute("max");
+  }
   elements.routineSummary.textContent = routine.active
-    ? `Running ${routine.name}: step ${routine.step}/${routine.steps}, repeat ${routine.repeat}/${routine.repeats}`
+    ? `Running ${routine.name}: step ${routine.step}/${routine.steps}, repeat ${routine.repeat}/${routine.repeats}${routine.delayRemainingMs ? ` · initial delay ${Math.ceil(routine.delayRemainingMs / 1000)} s left` : ""}`
     : `${routine.stored || 0}/${routine.capacity || 0} routine slots used. Arm the dispenser before running.`;
+  renderSavedRoutines(routine.library || []);
+  const geo = data.geo || {};
+  if (!elements.geoSource.dataset.initialized && !elements.geoSource.dataset.edited && ["API", "MAVLINK"].includes(geo.source)) {
+    elements.geoSource.value = geo.source; elements.geoSource.dataset.initialized = "true";
+  }
+  elements.geoStatus.textContent = `${geo.active ? (geo.running ? "Running routine" : "Waiting for next point") : "Stopped"} · ${geo.count || 0} points · next ${(geo.next || 0) + 1} · ${geo.source || "MAVLINK"} position ${geo.fresh ? "fresh" : "unavailable / stale"}${geo.distance !== undefined ? ` · ${geo.distance} m from next point` : ""}`;
+  elements.wifiSetupStatus.textContent = `Current Wi-Fi: ${radio.wifiLRActive ? "LR" : "ordinary"} · ${radio.wifiState || "off"} · ${radio.ip || "no IP"}`;
 
   const cards = [
     card("Payload", payload),
@@ -289,7 +312,7 @@ function renderState(data) {
   renderTransport();
 }
 
-async function postHttpNow(body, id, fast) {
+async function postHttpNow(body, id, fast, generation) {
   const clean = String(body || "").replace(/\r/g, "").trim();
   if (!clean) throw new Error("Empty command");
   let last;
@@ -298,6 +321,7 @@ async function postHttpNow(body, id, fast) {
   state.httpQuietUntil = Date.now() + timeout + 300;
   for (const delay of delays) {
     if (delay) await sleep(delay);
+    if (generation !== state.commandGeneration && !/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm)$/i.test(clean)) throw new Error("Pending command cancelled by stop");
     try {
       const response = await fetchTimed(api("/api/command"), {
         method: "POST",
@@ -324,13 +348,15 @@ async function postHttpNow(body, id, fast) {
 }
 
 function postHttp(body, id = rid(), fast = false) {
-  const run = () => postHttpNow(body, id, fast);
+  const generation = state.commandGeneration;
+  const run = () => postHttpNow(body, id, fast, generation);
+  if (fast && /^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm)$/i.test(body.trim())) return run();
   const pending = state.httpTail.then(run, run);
   state.httpTail = pending.catch(() => {});
   return pending;
 }
 
-async function writeBle(text) {
+async function writeBleNow(text) {
   if (!usingBle()) throw new Error("BLE disconnected");
   const bytes = enc.encode(text);
   for (let index = 0; index < bytes.length; index += BLE_CHUNK) {
@@ -341,9 +367,22 @@ async function writeBle(text) {
   }
 }
 
+function writeBle(text) {
+  const generation = state.commandGeneration;
+  const run = () => {
+    if (generation !== state.commandGeneration) throw new Error("Pending BLE command cancelled by stop");
+    return writeBleNow(text);
+  };
+  // Keep complete lines intact when a stop arrives during a fragmented write.
+  const pending = state.bleWriteTail.then(run, run);
+  state.bleWriteTail = pending.catch(() => {});
+  return pending;
+}
+
 async function runCommand(body, fast = false) {
   const clean = String(body || "").trim();
   if (!clean) throw new Error("Empty command");
+  if (/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm)$/i.test(clean)) { fast = true; ++state.commandGeneration; }
   log(`TX ${usingBle() ? "BLE" : "HTTP"} ${clean.split("\n").map(redact).join(" | ")}`, "send");
   if (usingBle()) {
     await writeBle(clean + "\n");
@@ -589,12 +628,14 @@ function routineName() {
 }
 async function saveRoutinePreset() {
   const name = routineName();
-  const maxPulse = Number(state.latest?.dispenser?.maxPulseMs) || 60000;
+  const maxPulse = Number(state.latest?.dispenser?.maxPulseMs) || 4294967295;
+  const delay = readInteger(elements.routineDelay, 0, 4294967295, "Initial delay");
   const pulse = readInteger(elements.routinePulse, 1, maxPulse, "Pulse");
-  const gap = readInteger(elements.routineGap, 0, 120000, "Gap");
-  const repeats = readInteger(elements.routineRepeats, 1, 20, "Repeats");
+  const gap = readInteger(elements.routineGap, 0, 4294967295, "Gap");
+  const repeats = readInteger(elements.routineRepeats, 1, 4294967295, "Repeats");
   await runCommand([
     `RoutineCreate:${name}`,
+    `RoutineAdd:${name}:START_WAIT:${delay}`,
     `RoutineAdd:${name}:DISPENSE:${pulse}`,
     `RoutineAdd:${name}:WAIT_IDLE`,
     `RoutineAdd:${name}:WAIT:${gap}`,
@@ -606,15 +647,73 @@ async function runNamedRoutine() {
   await runCommand(`RoutineRun:${routineName()}`);
 }
 async function customDispense() {
-  const max = Number(state.latest?.dispenser?.maxPulseMs) || 60000;
+  const max = Number(state.latest?.dispenser?.maxPulseMs) || 4294967295;
   const duration = readInteger(elements.pulseDuration, 1, max, "Pulse");
   await runCommand(`Dispense:${duration}`, true);
+}
+
+function renderSavedRoutines(library) {
+  const signature = JSON.stringify(library);
+  if (elements.savedRoutines.dataset.signature === signature) return;
+  elements.savedRoutines.dataset.signature = signature;
+  elements.savedRoutines.replaceChildren();
+  for (const [name, delay, pulse, gap, repeats, saved, steps] of library) {
+    const row = document.createElement("div"); row.className = "savedRoutine";
+    const label = document.createElement("div"); label.textContent = `${name}${saved ? "" : " (unsaved)"}`;
+    const details = document.createElement("small");
+    details.textContent = pulse ? `Delay ${delay} ms · on ${pulse} ms / off ${gap} ms · ${repeats} pulses` : `${steps} steps · ${repeats} repeats`;
+    label.append(details); row.append(label);
+    if (saved) {
+      const button = document.createElement("button"); button.textContent = `Run ${name}`; button.className = "primary";
+      button.addEventListener("click", () => withLock(() => runCommand(`RoutineRun:${name}`)));
+      row.append(button);
+    }
+    elements.savedRoutines.append(row);
+  }
+  if (!library.length) elements.savedRoutines.textContent = "No saved routines yet.";
+}
+
+async function saveWifiSettings() {
+  const ssid = elements.wifiSsid.value.trim(), password = elements.wifiPassword.value;
+  if (!/^(WIFI|WIFI_BLE|WIFI_BLE_P)$/.test(state.latest?.radio?.bootModeActive || "")) throw new Error("Select a Wi-Fi boot profile before applying client settings");
+  if (elements.wifiRole.value !== "AP" && !ssid) throw new Error("Enter the network name to join");
+  if (/[\r\n]/.test(ssid) || /[\r\n]/.test(password)) throw new Error("Network credentials must be one line");
+  if (enc.encode(ssid).length > 32) throw new Error("Network name must fit 32 UTF-8 bytes");
+  if (password && (enc.encode(password).length < 8 || enc.encode(password).length > 63)) throw new Error("Password must be 8-63 UTF-8 bytes");
+  const commands = [`WiFiMode:${elements.wifiRole.value}`, `WiFiLR:${elements.wifiProtocol.value}`];
+  if (ssid) commands.push(`WiFiStaSSID:${ssid}`);
+  if (elements.wifiOpenNetwork.checked) commands.push("WiFiStaPassword:");
+  else if (password) commands.push(`WiFiStaPassword:${password}`);
+  commands.push("ConfigSave", "ConfigApply");
+  await runCommand(commands.join("\n"));
+  elements.wifiPassword.value = "";
+}
+
+function coordinateCommands(text) {
+  const lines = text.trim().split(/\r?\n/).filter(line => line.trim());
+  const capacity = Number(state.latest?.geo?.capacity) || 256;
+  if (!lines.length || lines.length > capacity) throw new Error(`Enter 1-${capacity} coordinate lines`);
+  return lines.map(line => {
+    const fields = line.split(",").map(value => value.trim());
+    const [lat, lon, radius] = fields.slice(0, 3).map(Number), name = fields[3];
+    if (fields.length !== 4 || fields.slice(0, 3).some(value => !value) || !Number.isFinite(lat) || Math.abs(lat) > 90 || !Number.isFinite(lon) || Math.abs(lon) > 180 || !Number.isFinite(radius) || radius < 0.1 || radius > 1000 || !/^[A-Za-z0-9_-]{1,15}$/.test(name)) throw new Error("Each line needs latitude,longitude,radius 0.1-1000 m,saved routine name");
+    return `GeoAdd:${lat},${lon},${radius},${name}`;
+  });
+}
+async function saveCoordinateSequence() {
+  const commands = ["GeoClear", `GeoSource:${elements.geoSource.value}`, ...coordinateCommands(elements.geoPoints.value), "GeoSave"];
+  // The controller admits eight lines per batch; leave room for housekeeping.
+  for (let i = 0; i < commands.length; i += 4) { await runCommand(commands.slice(i, i + 4).join("\n")); await sleep(250); }
 }
 
 document.addEventListener("click", event => {
   const button = event.target.closest("button[data-command]");
   if (!button) return;
   const command = button.dataset.command;
+  if (/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm)$/i.test(command)) {
+    runCommand(command, true).catch(error => log(error.message, "error"));
+    return;
+  }
   if (button.dataset.confirm && !window.confirm(`Send ${command}?`)) return;
   withLock(() => runCommand(command));
 });
@@ -629,10 +728,19 @@ elements.commandInput.addEventListener("keydown", event => {
   if (event.ctrlKey && event.key === "Enter") { event.preventDefault(); sendInput(); }
 });
 elements.sendCommands.addEventListener("click", sendInput);
-elements.stopAll.addEventListener("click", () => runCommand("StopAll").catch(error => log(error.message, "error")));
+elements.stopAll.addEventListener("click", () => runCommand("StopAll", true).catch(error => log(error.message, "error")));
 elements.dispensePulse.addEventListener("click", () => withLock(customDispense));
 elements.saveRoutine.addEventListener("click", () => withLock(saveRoutinePreset));
 elements.runRoutine.addEventListener("click", () => withLock(runNamedRoutine));
+elements.useHourLimit.addEventListener("click", () => withLock(async () => {
+  await runCommand("Disarm", true); await sleep(250);
+  await runCommand("DispenserArmTimeout:0\nDispenserMaxPulse:0\nDispenserSave");
+}));
+elements.saveWifi.addEventListener("click", () => withLock(saveWifiSettings));
+elements.geoSource.addEventListener("change", () => { elements.geoSource.dataset.edited = "true"; });
+elements.saveGeo.addEventListener("click", () => withLock(saveCoordinateSequence));
+elements.startGeo.addEventListener("click", () => withLock(() => runCommand("GeoStart")));
+elements.stopGeo.addEventListener("click", () => runCommand("GeoStop", true).catch(error => log(error.message, "error")));
 elements.connectBle.addEventListener("click", () => withLock(connectBle));
 elements.disconnectBle.addEventListener("click", disconnectBle);
 elements.clearLog.addEventListener("click", () => { elements.log.textContent = ""; });

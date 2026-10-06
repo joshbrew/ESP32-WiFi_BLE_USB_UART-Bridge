@@ -8,6 +8,7 @@
 #include "../addons/DeviceAddon.h"
 #include "EventBus.h"
 #include "RoutineEngine.h"
+#include "GeoMission.h"
 #include "../radio/RadioManager.h"
 #include "../transports/TransportBridge.h"
 #include "../hardware/StatusIndicators.h"
@@ -44,6 +45,7 @@ class CommandRouter {
   String webStateJson() const;
   static String stateThunk(void *context);
   static String webStateThunk(void *context);
+  static bool positionThunk(void *context, const String &body);
 
  private:
   String normalize(String command) const;
@@ -70,6 +72,7 @@ class CommandRouter {
   EventBus &events_;
   DeviceAddon &addon_;
   RoutineEngine &routines_;
+  GeoMission geo_;
   TransportBridge &bridge_;
   RadioManager &radios_;
   TransportHub &transports_;

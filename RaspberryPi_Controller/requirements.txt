@@ -1,0 +1,5 @@
+# Install aiohttp, gpiozero, and pyserial through apt on ARMv6 (see README).
+aiohttp>=3.9,<4
+dbus-next==0.2.3
+pyserial==3.5
+gpiozero==2.0.1

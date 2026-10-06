@@ -131,6 +131,7 @@ class RadioManager {
     bool sppEnabled;
     bool fallbackAp;
     WifiRole wifiRole;
+    bool wifiLongRange;
     int8_t wifiTxPowerQuarterDbm;
     String staSsid;
     String staPassword;
@@ -182,6 +183,8 @@ class RadioManager {
   void startStation();
   void startApSta();
   bool beginAccessPoint(bool combinedMode);
+  bool configureWifiProtocol(wifi_mode_t mode);
+  bool wifiLrSupported() const;
   void stopWifi();
   void serviceWifiState();
   void serviceRadioHandoff();
@@ -218,6 +221,7 @@ class RadioManager {
   bool dnsRunning_;
   bool mdnsRunning_;
   bool wifiRunning_;
+  bool wifiLongRangeActive_;
   bool wifiStartAttempted_;
   bool wifiStartSucceeded_;
   bool apActive_;

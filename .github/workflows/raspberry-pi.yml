@@ -1,0 +1,24 @@
+name: Raspberry Pi controller
+on:
+  push:
+    paths: ['RaspberryPi_Controller/**', 'ESP32_Dispenser_Controller/COMMANDS.md', 'ESP32_Modular_Command_Transport_Controller/COMMANDS.md', '.github/workflows/raspberry-pi.yml']
+  pull_request:
+    paths: ['RaspberryPi_Controller/**', 'ESP32_Dispenser_Controller/COMMANDS.md', 'ESP32_Modular_Command_Transport_Controller/COMMANDS.md', '.github/workflows/raspberry-pi.yml']
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: RaspberryPi_Controller
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -v
+      - run: node --check web/app.js
+      - run: sh -n deploy/install.sh

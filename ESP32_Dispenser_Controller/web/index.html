@@ -36,30 +36,65 @@
       </div>
       <div class="customPulse">
         <label for="pulseDuration">Custom pulse (ms)</label>
-        <input id="pulseDuration" type="number" min="1" max="60000" value="250" inputmode="numeric">
+        <input id="pulseDuration" type="number" min="1" value="250" inputmode="numeric">
         <button id="dispensePulse" class="primary">Dispense</button>
       </div>
+      <button id="useHourLimit">Remove saved time limits</button>
       <p class="safetyNote">Arming never activates the output. Every dispense command has a hard time limit, and STOP ALL cancels the output and disarms the controller.</p>
     </section>
 
     <section class="panel routinePanel">
       <div>
         <span class="kicker">Saved nonblocking timing</span>
-        <h2>Dot-pattern routine</h2>
+        <h2>Repeater routine</h2>
       </div>
       <p id="routineSummary" class="hint">Build a bounded pulse-and-wait routine, save it in controller memory, then arm before running.</p>
       <div class="routineBuilder">
         <label>Name<input id="routineName" maxlength="15" value="dots" spellcheck="false"></label>
-        <label>Pulse ms<input id="routinePulse" type="number" min="1" max="60000" value="200"></label>
-        <label>Gap ms<input id="routineGap" type="number" min="0" max="120000" value="800"></label>
-        <label>Repeats<input id="routineRepeats" type="number" min="1" max="20" value="6"></label>
+        <label>Initial delay ms<input id="routineDelay" type="number" min="0" value="0"></label>
+        <label>Pulse ms<input id="routinePulse" type="number" min="1" value="200"></label>
+        <label>Gap ms<input id="routineGap" type="number" min="0" value="800"></label>
+        <label>Repeats<input id="routineRepeats" type="number" min="1" value="6"></label>
       </div>
       <div class="inlineCommands">
         <button id="saveRoutine">Build + save</button>
         <button id="runRoutine" class="primary">Run saved routine</button>
         <button id="stopRoutine" data-command="RoutineStop" class="danger">Stop routine</button>
       </div>
+      <p class="hint">Initial delay runs once before the first pulse. Gap runs after each pulse. Save first, then use a named Run button below.</p>
+      <div id="savedRoutines" class="savedRoutines" aria-live="polite"></div>
     </section>
+
+    <details class="panel">
+      <summary>Wi-Fi network / drone hotspot</summary>
+      <p id="wifiSetupStatus" class="hint">Use ordinary Wi-Fi to join a drone/controller hotspot. LR requires an ESP32 peer.</p>
+      <div class="routineBuilder">
+        <label>Mode<select id="wifiRole"><option value="APSTA">Setup AP + client</option><option value="STA">Client only</option><option value="AP">Setup AP only</option></select></label>
+        <label>Network name<input id="wifiSsid" maxlength="32" autocomplete="off"></label>
+        <label>New network password<input id="wifiPassword" type="password" maxlength="63" autocomplete="new-password" placeholder="Blank keeps saved password"></label>
+        <label>Protocol<select id="wifiProtocol"><option value="OFF">Ordinary Wi-Fi (phones / drone)</option><option value="ON">ESP32 LR only</option></select></label>
+      </div>
+      <label><input id="wifiOpenNetwork" type="checkbox"> Network has no password</label>
+      <div class="inlineCommands"><button id="saveWifi">Save + apply network</button></div>
+      <p class="hint">Applying disconnects the current Wi-Fi link. In client-only mode, access the console at the IP shown over USB or BLE. The active boot profile must include Wi-Fi.</p>
+    </details>
+
+    <details class="panel">
+      <summary>Coordinate-triggered routines</summary>
+      <p id="geoStatus" class="hint">Coordinate sequence is stopped. Feed MAVLink UDP or GeoPosition updates before starting.</p>
+      <label class="fieldLabel" for="geoSource">Drone position source</label>
+      <select id="geoSource"><option value="MAVLINK">MAVLink over Wi-Fi</option><option value="API">XAG / custom position bridge</option></select>
+      <label class="fieldLabel" for="geoPoints">Ordered points: latitude, longitude, radius in meters, saved routine name</label>
+      <textarea id="geoPoints" rows="4" spellcheck="false" placeholder="37.4219999,-122.0840575,5,dots"></textarea>
+      <div class="inlineCommands">
+        <button id="saveGeo">Save coordinate sequence</button>
+        <button id="startGeo" class="primary">Start sequence</button>
+        <button id="stopGeo" class="danger">Stop sequence + output</button>
+        <button data-command="GeoList">Show saved points</button>
+      </div>
+      <p class="hint">Start authorizes automatic arming at each next point. Its routine runs once when inside the radius, then the sequence advances. Position loss stops the sequence and output. Restart explicitly starts again at point 1.</p>
+      <p class="hint">MAVLink input: UDP port 14550, system/component 1/1, GPS_RAW_INT and GLOBAL_POSITION_INT. A custom bridge can POST latitude,longitude,accuracyMeters,ageMs as plain text to /api/position. Updates must stay fresh throughout the routine.</p>
+    </details>
 
     <section class="panel console">
       <div class="consoleHead">

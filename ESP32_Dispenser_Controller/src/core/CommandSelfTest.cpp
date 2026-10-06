@@ -993,6 +993,7 @@ bool CommandSelfTest::captureSnapshot(String &reason) {
     bool fallback;
     uint8_t mode;
     int8_t txq;
+    bool lr;
     String staSsid;
     String staPass;
     String apSsid;
@@ -1016,6 +1017,7 @@ bool CommandSelfTest::captureSnapshot(String &reason) {
   radio.fallback = rp.getBool("fallback", true);
   radio.mode = rp.getUChar("mode", 2);
   radio.txq = rp.getChar("txq", AppConfig::WIFI_TX_POWER_MAX_QUARTER_DBM);
+  radio.lr = rp.getBool("lr", false);
   radio.staSsid = rp.getString("stassid", "");
   radio.staPass = rp.getString("stapass", "");
   radio.apSsid = rp.getString("apssid", AppConfig::DEFAULT_WIFI_AP_SSID);
@@ -1040,6 +1042,7 @@ bool CommandSelfTest::captureSnapshot(String &reason) {
   ok = out.putBool("rfallback", radio.fallback) > 0 && ok;
   ok = out.putUChar("rmode", radio.mode) > 0 && ok;
   ok = out.putChar("rtxq", radio.txq) > 0 && ok;
+  ok = out.putBool("rlr", radio.lr) > 0 && ok;
   ok = out.putString("rstassid", radio.staSsid) == radio.staSsid.length() && ok;
   ok = out.putString("rstapass", radio.staPass) == radio.staPass.length() && ok;
   ok = out.putString("rapssid", radio.apSsid) == radio.apSsid.length() && ok;
@@ -1127,6 +1130,7 @@ bool CommandSelfTest::restoreRadioNvs(String &reason) {
   const bool fallback = snapshot.getBool("rfallback", true);
   const uint8_t mode = snapshot.getUChar("rmode", 2);
   const int8_t txq = snapshot.getChar("rtxq", AppConfig::WIFI_TX_POWER_MAX_QUARTER_DBM);
+  const bool lr = snapshot.getBool("rlr", false);
   const String staSsid = snapshot.getString("rstassid", "");
   const String staPass = snapshot.getString("rstapass", "");
   const String apSsid = snapshot.getString("rapssid", AppConfig::DEFAULT_WIFI_AP_SSID);
@@ -1149,6 +1153,7 @@ bool CommandSelfTest::restoreRadioNvs(String &reason) {
     ok = radio.putBool("fallback", fallback) > 0 && ok;
     ok = radio.putUChar("mode", mode) > 0 && ok;
     ok = radio.putChar("txq", txq) > 0 && ok;
+    ok = radio.putBool("lr", lr) > 0 && ok;
     ok = radio.putString("stassid", staSsid) == staSsid.length() && ok;
     ok = radio.putString("stapass", staPass) == staPass.length() && ok;
     ok = radio.putString("apssid", apSsid) == apSsid.length() && ok;
@@ -1222,6 +1227,7 @@ bool CommandSelfTest::verifyPersistentRestore(String &reason) {
   const bool radioFallback = snapshot.getBool("rfallback", true);
   const uint8_t radioRole = snapshot.getUChar("rmode", 2);
   const int8_t radioTxq = snapshot.getChar("rtxq", AppConfig::WIFI_TX_POWER_MAX_QUARTER_DBM);
+  const bool radioLr = snapshot.getBool("rlr", false);
   const String radioStaSsid = snapshot.getString("rstassid", "");
   const String radioStaPass = snapshot.getString("rstapass", "");
   const String radioApSsid = snapshot.getString("rapssid", AppConfig::DEFAULT_WIFI_AP_SSID);
@@ -1261,6 +1267,7 @@ bool CommandSelfTest::verifyPersistentRestore(String &reason) {
       radio.getBool("fallback", !radioFallback) == radioFallback &&
       radio.getUChar("mode", 255) == radioRole &&
       radio.getChar("txq", 127) == radioTxq &&
+      radio.getBool("lr", !radioLr) == radioLr &&
       radio.getString("stassid", "") == radioStaSsid &&
       radio.getString("stapass", "") == radioStaPass &&
       radio.getString("apssid", "") == radioApSsid &&

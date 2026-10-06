@@ -417,6 +417,7 @@ WebRestart
 WiFiMode:AP|STA|APSTA
 WiFiFallbackAP:ON|OFF
 WiFiTxPower:LOW|MAX|<supported dBm>
+WiFiLR:ON|OFF
 WiFiStaSSID:<ssid>
 WiFiStaPassword:<password>
 WiFiStaClear
@@ -428,6 +429,10 @@ ConfigLoad
 ConfigDefaults
 ConfigErase
 ```
+
+LR is OFF by default. ON requires an LR-capable ESP32 peer and prevents ordinary
+phone/router Wi-Fi connections. Read the [LR and Bluetooth relay guide](../docs/WIFI_LR.md)
+before applying it; use `ConfigApply` to restart Wi-Fi and `ConfigSave` to persist.
 
 ### Explicit output routing
 

@@ -27,6 +27,8 @@ class DispenserAddon : public DeviceAddon {
   bool hasActiveOutput() const override;
   bool hasTimedOperationActive() const override;
   bool canStartRoutine(String &reason) const override;
+  bool validateRoutineCommand(const String &command, String &reason) const override;
+  bool canRunRoutineFor(uint64_t durationMs, String &reason) const override;
   bool blocksExternalCommandDuringRoutine(const String &command) const override;
   void appendStateJson(String &json, bool compact) const override;
   void publishHelp(

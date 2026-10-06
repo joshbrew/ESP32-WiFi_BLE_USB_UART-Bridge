@@ -1,0 +1,171 @@
+// Local mocked-device browser checks; never connects to controller hardware.
+const { chromium } = require("playwright");
+const assert = require("node:assert/strict");
+const http = require("node:http");
+const fs = require("node:fs");
+const path = require("node:path");
+const zlib = require("node:zlib");
+const web = path.resolve(__dirname, "../web");
+const commands = [];
+const header = fs.readFileSync(path.resolve(web, "../src/web/WebAssets.h"), "utf8");
+const embeddedHtml = zlib.gunzipSync(Buffer.from([...header.matchAll(/0x([0-9a-f]{2})/gi)].map(match => parseInt(match[1], 16))));
+let heldResponse;
+const snapshot = {
+  ok: true, firmware: "Dispenser test", version: "test", freeHeap: 100000,
+  addon: { name: "drone-dispenser", dispenser: true, active: true },
+  dispenser: { armed: true, dispensing: false, faulted: false, maxPulseMs: 0, armTimeoutMs: 0, profile: "test" },
+  routine: { active: false, library: [["dots", 1000, 200, 800, 6, true, 4]] },
+  geo: { active: false, saved: true, fresh: true, count: 2, next: 0, source: "API", capacity: 256 },
+  radio: { bootModeActive: "WIFI", wifiCompiled: true, bleCompiled: true, wifiState: "connected", ip: "192.168.4.1" },
+  send: {}, selfTest: {}
+};
+const server = http.createServer((request, response) => {
+  if (request.url === "/api/command") {
+    let body = "";
+    request.on("data", data => body += data);
+    request.on("end", () => {
+      commands.push(body);
+      if (body === "RoutineRun:hold") { heldResponse = response; return; }
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify({ accepted: true, acceptedLines: body.split("\n").length, latestEventId: 0 }));
+    });
+    return;
+  }
+  if (request.url.startsWith("/api/")) {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify(request.url === "/api/state" ? snapshot : { ok: true, cursor: 0, events: [] }));
+    return;
+  }
+  const url = new URL(request.url, "http://localhost");
+  if (url.pathname === "/" && url.searchParams.has("embedded")) {
+    response.setHeader("Content-Type", "text/html"); response.end(embeddedHtml); return;
+  }
+  const file = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
+  if (!["index.html", "app.css", "app.js"].includes(file)) { response.writeHead(404); response.end(); return; }
+  response.setHeader("Content-Type", file.endsWith(".js") ? "text/javascript" : file.endsWith(".css") ? "text/css" : "text/html");
+  response.end(fs.readFileSync(path.join(web, file)));
+});
+(async () => {
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  const browser = await chromium.launch({ channel: "chrome", headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const errors = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.getByRole("button", { name: "Run dots", exact: true }).waitFor();
+    assert.equal(await page.locator("#geoSource").inputValue(), "API");
+    assert.match(await page.locator("#savedRoutines").innerText(), /Delay 1000 ms.*6 pulses/);
+    for (const id of ["routineDelay", "routinePulse", "routineGap", "routineRepeats", "pulseDuration"])
+      assert.equal(await page.locator(`#${id}`).getAttribute("max"), null);
+    await page.locator("#routineDelay").fill("500000");
+    await page.locator("#routinePulse").fill("7200000");
+    await page.locator("#routineGap").fill("500000");
+    await page.locator("#routineRepeats").fill("1000");
+    await page.locator("#saveRoutine").click();
+    await page.waitForFunction(() => !state.busy);
+    assert.deepEqual(commands[0].split("\n"), ["RoutineCreate:dots", "RoutineAdd:dots:START_WAIT:500000", "RoutineAdd:dots:DISPENSE:7200000", "RoutineAdd:dots:WAIT_IDLE", "RoutineAdd:dots:WAIT:500000", "RoutineRepeat:dots:1000", "RoutineSave:dots"]);
+    for (const value of ["0", "-1", "1.5", "4294967296"]) {
+      const before=commands.length;
+      await page.locator("#routineRepeats").fill(value);
+      await page.locator("#saveRoutine").click();await page.waitForFunction(() => !state.busy);
+      assert.equal(commands.length,before);
+    }
+    await page.locator("#routineRepeats").fill("4294967295");
+    await page.locator("#saveRoutine").click();await page.waitForFunction(() => !state.busy);
+    assert(commands.at(-1).includes("RoutineRepeat:dots:4294967295"));
+    snapshot.dispenser.armed=false;
+    await page.waitForFunction(() => !document.getElementById("useHourLimit").disabled);
+    const beforeLimits=commands.length;
+    await page.getByRole("button", { name: "Remove saved time limits", exact: true }).click();
+    await page.waitForFunction(() => !state.busy);
+    assert.deepEqual(commands.slice(beforeLimits), ["Disarm", "DispenserArmTimeout:0\nDispenserMaxPulse:0\nDispenserSave"]);
+    snapshot.dispenser.armed=true;
+    await page.getByText("Coordinate-triggered routines", { exact: true }).click();
+    await page.locator("#geoSource").selectOption("API");
+    await page.locator("#geoPoints").fill(Array.from({ length: 256 }, (_, i) => `37.${i},-122,5,dots`).join("\n"));
+    const beforePlan = commands.length;
+    await page.locator("#saveGeo").click();
+    await page.waitForFunction(() => !state.busy);
+    const batches = commands.slice(beforePlan);
+    assert.equal(batches.length, 65);
+    assert(batches.every(body => body.split("\n").length <= 4));
+    assert.equal(batches.join("\n").split("\n").filter(line => line.startsWith("GeoAdd:")).length, 256);
+    assert(await page.evaluate(() => { try { coordinateCommands(Array(257).fill("37,-122,5,dots").join("\n")); return false; } catch { return true; } }));
+    assert.match(batches[0], /GeoSource:API/);
+    assert.match(batches.at(-1), /GeoSave$/);
+    assert(await page.evaluate(() => { try { coordinateCommands("91,-122,5,dots"); return false; } catch { return true; } }));
+    await page.getByText("Wi-Fi network / drone hotspot", { exact: true }).click();
+    const invalidSsid = await page.evaluate(async () => {
+      elements.wifiSsid.value = "é".repeat(17);
+      try { await saveWifiSettings(); return "unexpectedly accepted"; }
+      catch (error) { return error.message; }
+    });
+    assert.match(invalidSsid, /32 UTF-8 bytes/);
+    await page.locator("#wifiSsid").fill("drone-hotspot");
+    await page.locator("#wifiPassword").fill("test-secret-123");
+    await page.locator("#saveWifi").click();
+    await page.waitForFunction(() => !state.busy);
+    assert.match(commands.at(-1), /WiFiMode:APSTA\nWiFiLR:OFF\nWiFiStaSSID:drone-hotspot\nWiFiStaPassword:test-secret-123\nConfigSave\nConfigApply/);
+    assert(!(await page.locator("#log").innerText()).includes("test-secret-123"));
+    assert.equal(await page.locator("#wifiPassword").inputValue(), "");
+    // Hold one ordinary HTTP command; stop must bypass it and cancel queued work.
+    await page.evaluate(() => {
+      runCommand("RoutineRun:hold").catch(() => {});
+      runCommand("Dispense:123").catch(() => {});
+      state.busy = true; updateActions();
+    });
+    await page.waitForTimeout(100);
+    assert(heldResponse);
+    await page.locator("#stopRoutine").click();
+    await page.waitForTimeout(150);
+    assert.equal(commands.at(-1), "RoutineStop");
+    heldResponse.end(JSON.stringify({ accepted: true, acceptedLines: 1 })); heldResponse = undefined;
+    await page.waitForTimeout(200);
+    assert(!commands.includes("Dispense:123"));
+    await page.evaluate(() => { state.busy = false; updateActions(); });
+    // Concurrent BLE polls and stop must not interleave fragmented lines.
+    const bytes = await page.evaluate(async () => {
+      const writes = [];
+      state.transport = "ble"; state.bleTx = {};
+      state.bleStatePending = true; state.bleStateAt = Date.now();
+      state.bleRx = { writeValueWithoutResponse: async value => { writes.push(...value); await sleep(1); } };
+      await Promise.all([writeBle("GeoPosition:37,-122,1,0\n"), writeBle("@STATE\n")]);
+      state.transport = "http";state.bleTx = null;state.bleRx = null;
+      state.bleStatePending = false;
+      return new TextDecoder().decode(new Uint8Array(writes));
+    });
+    assert.equal(bytes, "GeoPosition:37,-122,1,0\n@STATE\n");
+    const screenshot = process.env.CONSOLE_SCREENSHOT;
+    if (screenshot) await page.screenshot({ path: screenshot, fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+    assert.deepEqual(errors, []);
+    await page.close();
+    // Exercise the actual minified gzip page embedded in firmware too.
+    snapshot.routine.library.push(["hold", 0, 20, 0, 1, true, 3]);
+    const embedded = await browser.newPage();
+    embedded.on("pageerror", error => errors.push(error.message));
+    await embedded.goto(`http://127.0.0.1:${server.address().port}/?embedded=1`);
+    await embedded.getByRole("button", { name: "Run dots", exact: true }).waitFor();
+    assert.equal(await embedded.locator("#geoSource").inputValue(), "API");
+    await embedded.locator("#routineDelay").fill("7000");
+    await embedded.locator("#routineRepeats").fill("300");
+    await embedded.locator("#saveRoutine").click();
+    await embedded.waitForFunction(() => !document.getElementById("saveRoutine").disabled);
+    assert(commands.at(-1).includes("RoutineRepeat:dots:300"));
+    assert.match(commands.at(-1), /RoutineAdd:dots:START_WAIT:7000/);
+    await embedded.getByRole("button", { name: "Run hold", exact: true }).click();
+    await embedded.waitForTimeout(100); assert(heldResponse);
+    await embedded.locator("#stopRoutine").click();
+    await embedded.waitForTimeout(150); assert.equal(commands.at(-1), "RoutineStop");
+    heldResponse.end(JSON.stringify({ accepted: true, acceptedLines: 1 })); heldResponse = undefined;
+    assert.deepEqual(errors, []);
+    console.log("PASS saved buttons, one-time delay, uncapped input, 32-bit repeats and invalid counts, coordinate batches/validation, client settings/redaction, immediate stop/cancel, BLE framing, mobile width");
+    console.log("PASS production minified gzip page, saved buttons, source readback, initial delay, stop during an in-flight request");
+  } finally {
+    if (heldResponse) heldResponse.destroy();
+    await browser.close();
+    server.close();
+  }
+})().catch(error => { console.error(error); server.close(); process.exitCode = 1; });

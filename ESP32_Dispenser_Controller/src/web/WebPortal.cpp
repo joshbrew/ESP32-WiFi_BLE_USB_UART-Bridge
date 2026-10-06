@@ -90,6 +90,10 @@ void WebPortal::prepare() {
   );
 }
 
+void WebPortal::configurePositionSubmitter(PositionSubmitter submitter, void *context) {
+  positionSubmitter_ = submitter; positionContext_ = context;
+}
+
 void WebPortal::start() {
   if (running_) {
     events_.publish(
@@ -561,6 +565,23 @@ void WebPortal::installRoutes() {
       handleCommandBody(request, data, length, index, totalBytes);
     }
   );
+  server_.on("/api/position", HTTP_POST,
+    [this](AsyncWebServerRequest *request) {
+      if (!isRequestActive(request) && !admitRequest(request, 256, "position-empty")) return;
+      noteRequest(request, "position", false);
+      String body;
+      if (!takeCommandBody(request, body) || body.length() > 128 || strlen(body.c_str()) != body.length()) {
+        sendJson(request, 400, "{\"ok\":false,\"error\":\"expected latitude,longitude,accuracyMeters,ageMs\"}");
+      } else if (!positionSubmitter_) {
+        sendJson(request, 503, "{\"ok\":false,\"error\":\"position receiver unavailable\"}");
+      } else if (!positionSubmitter_(positionContext_, body)) {
+        sendJson(request, 400, "{\"ok\":false,\"error\":\"invalid or stale position\"}");
+      } else sendJson(request, 200, "{\"ok\":true,\"accepted\":true}");
+    }, nullptr,
+    [this](AsyncWebServerRequest *request, uint8_t *data, size_t length, size_t index, size_t total) {
+      if (total > 128) { request->abort(); return; }
+      handleCommandBody(request, data, length, index, total);
+    });
 #if APP_HTTP_OTA_ENABLED
   server_.on(
     "/api/ota",
@@ -1575,6 +1596,9 @@ void WebPortal::configure(
 }
 
 void WebPortal::prepare() {}
+void WebPortal::configurePositionSubmitter(PositionSubmitter submitter, void *context) {
+  (void)submitter; (void)context;
+}
 void WebPortal::start() {}
 void WebPortal::service() {}
 bool WebPortal::isRunning() const { return false; }

@@ -16,7 +16,7 @@ static const char *const HELP_ROWS[] = {
   "Indicators: IndicatorStatus IndicatorTest IndicatorConnectionTest IndicatorActivityTest",
   "Send: Send:text SendBLE:text SendWiFi:text SendUSB:text SendSerial:text SendUART:text SendSPP:text SendStatus",
   "Radio: ModeWiFi ModeWiFiBLE ModeWiFiBLEP ModeBLE ModeBTSerial ModeUSB RadioBoot:PROFILE RadioStatus BLEStatus BLEWebHandoff BLEWebCancel",
-  "Wi-Fi/config: WiFiMode WiFiTxPower WiFiApSSID WiFiApPassword WiFiStaSSID WiFiStaPassword WiFiStaClear ConfigSave ConfigLoad ConfigApply ConfigDefaults ConfigErase",
+  "Wi-Fi/config: WiFiMode WiFiLR WiFiTxPower WiFiApSSID WiFiApPassword WiFiStaSSID WiFiStaPassword WiFiStaClear ConfigSave ConfigLoad ConfigApply ConfigDefaults ConfigErase",
 };
 
 constexpr size_t HELP_ROW_COUNT = sizeof(HELP_ROWS) / sizeof(HELP_ROWS[0]);

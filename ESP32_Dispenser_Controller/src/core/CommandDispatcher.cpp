@@ -18,7 +18,13 @@ void copyCommandTextBounded(char *destination, size_t capacity, const String &va
 
 bool isEmergencyCommand(String line) {
   line.trim();
-  return line.equalsIgnoreCase("StopAll");
+  return line.equalsIgnoreCase("StopAll") || line.equalsIgnoreCase("RoutineStop") ||
+    line.equalsIgnoreCase("GeoStop") || line.equalsIgnoreCase("DispenseStop") || line.equalsIgnoreCase("Disarm") ||
+    line.equalsIgnoreCase("DispenserDisarm") || line.equalsIgnoreCase("DispenserOff")
+#if APP_DRONE_DISPENSER_ADDON_ENABLED
+    || line.equalsIgnoreCase("GPIO26:OFF")
+#endif
+    ;
 }
 
 uint16_t countCommandLines(const String &body, bool &valid) {

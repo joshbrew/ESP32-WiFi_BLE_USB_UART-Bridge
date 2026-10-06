@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Raspberry Pi Controller</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header>
+    <div><span class="kicker">Raspberry Pi Zero W / Zero 2 W</span><h1>Dispenser &amp; Transport Console</h1><p id="buildVersion">Waiting for controller</p></div>
+    <div class="live"><span id="liveDot"></span><strong id="liveText">Connecting</strong></div>
+  </header>
+  <main>
+    <p id="simulation" class="safetyNote">Checking whether hardware is live…</p>
+    <section id="dispenserPanel" class="panel payloadPanel">
+      <div class="payloadHeading"><div><span class="kicker">Timed pulse output</span><h2>Dispenser control</h2></div><strong id="payloadState" class="stateBadge safe">UNKNOWN</strong></div>
+      <p id="payloadMeta" class="hint">Waiting for state.</p>
+      <div class="payloadControls">
+        <button data-command="Arm" class="arm">Arm</button>
+        <button data-command="Disarm">Disarm</button>
+        <button data-command="Dispense:100" data-pulse="100">100 ms pulse</button>
+        <button data-command="Dispense:250" data-pulse="250">250 ms pulse</button>
+        <button data-command="Dispense:500" data-pulse="500">500 ms pulse</button>
+        <button data-command="DispenseStop" class="danger">Stop output</button>
+      </div>
+      <div class="customPulse"><label for="pulseDuration">Custom pulse (ms)</label><input id="pulseDuration" type="number" min="1" max="4294967295" value="250"><button id="dispensePulse" class="primary">Dispense</button></div>
+      <p class="safetyNote">Arming never activates the output. STOP ALL cancels the routine, turns off the output, and disarms. Use an external interlock for physical equipment.</p>
+    </section>
+    <section id="motorPanel" class="panel payloadPanel" hidden>
+      <span class="kicker">Optional stepper &amp; MCP4725 profile</span><h2>Motor &amp; analog output</h2>
+      <p id="motorSummary" class="hint"></p>
+      <div class="formGrid"><label>Speed (RPM)<input id="motorRpm" type="number" min="0.1" step="0.1" value="5"></label><label>Travel<input id="motorTravel" type="number" min="1" value="90"></label><label>Units<select id="motorUnits"><option value="DEG">Degrees</option><option value="RPM">Steps</option></select></label><label>Direction<select id="motorDirection"><option value="1">Clockwise</option><option value="2">Counterclockwise</option></select></label></div>
+      <div class="inlineCommands"><button id="moveMotor" class="primary">Move motor</button><button data-command="Stop" class="danger">Stop motor</button><button data-command="CoilsOff">Release coils</button><button data-command="HoldTorque:1">Hold torque</button><button data-command="HoldTorque:0">Release after move</button></div>
+      <div class="formGrid"><label>Step mode<select id="motorMode"><option value="8">Half step</option><option value="4">Full step</option></select></label><label>Base steps / revolution<input id="motorRev" type="number" min="1" value="2048"></label><label>Coil order<input id="motorOrder" maxlength="4" value="0123"></label><label>DAC level (mV)<input id="dacMv" type="number" min="0" max="3300" value="500"></label></div>
+      <div class="inlineCommands"><button id="motorSettings">Apply motor settings</button><button id="setDac">Set DAC level</button><button data-command="DAC1:ON">DAC on</button><button data-command="DAC1:OFF">DAC off</button><button data-command="DAC1:TEST3S">DAC 3 s test</button><button data-command="GPIO26:ON">Digital on</button><button data-command="GPIO26:OFF">Digital off</button><button data-command="DACSave">Save DAC settings</button><button data-command="DACLoad">Load DAC settings</button></div>
+    </section>
+    <details id="payloadSettings" class="panel"><summary>Dispenser settings &amp; profiles</summary><p class="hint">Disarm before changing settings. Four named profiles are available.</p>
+      <div class="formGrid"><label>Output BCM pin<input id="settingPin" type="number" value="26"></label><label>Active level<select id="settingPolarity"><option value="ON">High</option><option value="OFF">Low</option></select></label><label>Default pulse ms<input id="settingDefault" type="number" min="1" max="4294967295" value="250"></label><label>Maximum pulse ms (0 = unlimited)<input id="settingMax" type="number" min="0" max="4294967295" value="0"></label><label>Arm timeout ms (0 = no expiry)<input id="settingArm" type="number" min="0" max="4294967295" value="0"></label><label>Profile name<input id="profileName" maxlength="15" value="fine"></label></div>
+      <div class="inlineCommands"><button id="applyPayload">Apply settings</button><button data-command="DispenserSave">Save settings</button><button data-command="DispenserDefaults">Defaults</button><button id="removeLimits">Remove saved time limits</button><button id="saveProfile">Save profile</button><button id="useProfile">Use profile</button><button id="deleteProfile">Delete profile</button></div><p id="profileSummary" class="hint"></p>
+    </details>
+    <section class="panel routinePanel">
+      <span class="kicker">Saved timing patterns</span><h2>Routines</h2>
+      <p id="routineSummary" class="hint">Arm separately before running a routine.</p>
+      <div id="dotBuilder" class="routineBuilder">
+        <label>Name<input id="routineName" maxlength="15" value="dots" spellcheck="false"></label>
+        <label>Initial delay ms<input id="routineDelay" type="number" min="0" max="4294967295" value="0"></label>
+        <label>Pulse ms<input id="routinePulse" type="number" min="1" max="4294967295" value="200"></label>
+        <label>Gap ms<input id="routineGap" type="number" min="0" max="4294967295" value="800"></label>
+        <label>Repeats<input id="routineRepeats" type="number" min="1" max="4294967295" value="6"></label>
+      </div>
+      <div class="inlineCommands"><button id="saveRoutine">Build + save dot pattern</button><button id="runRoutine" class="primary">Run routine</button><button data-command="RoutineStop" class="danger">Stop routine</button></div>
+      <p class="hint">Initial delay runs once. Gap runs after each pulse, including the last repeat. Arm separately before using a Run button.</p>
+      <div id="savedRoutines" class="savedRoutines"></div>
+      <details class="editor"><summary>Routine library &amp; custom steps</summary><p id="librarySummary" class="hint"></p><div class="formGrid"><label>Routine name<input id="editRoutineName" maxlength="15" value="custom"></label><label>Repeats<input id="editRepeats" type="number" min="1" max="4294967295" value="1"></label></div><label class="fieldLabel" for="routineSteps">One step per line, up to 10</label><textarea id="routineSteps" rows="4" spellcheck="false" placeholder="START_WAIT:1000&#10;DISPENSE:100&#10;WAIT_IDLE&#10;WAIT:800"></textarea><p class="hint">START_WAIT:ms is allowed only first and runs once. WAIT:ms runs every repeat. Other steps: WAIT_IDLE, DISPENSE:ms, or COMMAND followed by an allowed hardware command. Motor example: COMMAND:DEG:5,90,1</p><div class="inlineCommands"><button id="saveCustom">Build + save custom routine</button><button id="loadCustom">Load into editor</button><button id="runCustom" class="primary">Run selected</button><button id="eraseCustom">Delete selected</button></div></details>
+    </section>
+    <details id="geoPanel" class="panel"><summary>Coordinate-triggered routines</summary>
+      <p class="safetyNote">Start sequence enables automatic arming at each next point. The sequence stops if aircraft position is more than 3 seconds old. Outputs disarm between points. Always use STOP ALL to cancel.</p>
+      <p id="geoSummary" class="hint"></p>
+      <label class="fieldLabel" for="geoSource">Aircraft position source</label><select id="geoSource"><option value="MAVLINK">MAVLink UDP</option><option value="API">Custom position API</option></select>
+      <label class="fieldLabel" for="geoPoints">Ordered points — latitude, longitude, radius meters, saved routine name</label><textarea id="geoPoints" rows="4" spellcheck="false" placeholder="37.4219999,-122.0840575,5,dots"></textarea>
+      <p class="hint">Up to 500 points; radius 0.1–1000 m. Paste one point per line to import a larger plan. Only the next point can trigger. Known accuracy must fit its radius. Use the aircraft's position feed; this console does not use your phone's location.</p>
+      <div class="inlineCommands"><button id="saveGeo">Build + save sequence</button><button id="loadGeo">Load saved sequence</button><button id="startGeo" class="primary">Start sequence — auto-arm</button><button data-command="GeoStop" class="danger">Stop sequence</button><button data-command="GeoResetPosition">Reset position clock</button><button data-command="GeoClear">Clear sequence in memory</button></div>
+      <progress id="geoBuildProgress" value="0" max="500" aria-label="Sequence points saved"></progress><p id="geoBuildStatus" class="hint"></p>
+      <details class="editor"><summary>Simulation / bench position input</summary><p class="hint">Select and save Custom position API first. Enter a single aircraft fix below. A continuous provider must send fresh fixes 2–5 times per second to /api/position.</p><div class="formGrid"><label>Latitude<input id="fixLatitude" type="number" min="-90" max="90" step="any" value="37.4219999"></label><label>Longitude<input id="fixLongitude" type="number" min="-180" max="180" step="any" value="-122.0840575"></label><label>Accuracy meters (-1 = unknown)<input id="fixAccuracy" type="number" min="-1" step="any" value="1"></label><label>Measurement age ms<input id="fixAge" type="number" min="0" max="3000" value="0"></label></div><button id="sendFix">Send one position fix</button></details>
+    </details>
+    <section class="panel console">
+      <div class="consoleHead"><div><span class="kicker">HTTP, BLE UART, USB serial, GPIO UART</span><h2>Command console</h2></div><div class="bleControls"><button id="connectBle">Connect BLE</button><button id="disconnectBle" disabled>Disconnect</button></div></div>
+      <div class="transportLine"><span id="transportSummary">HTTP transport</span><span id="compiledSummary"></span></div>
+      <p class="hint">Browser BLE needs a secure page (HTTPS or localhost). The Pi's HTTP console works over local Wi-Fi.</p>
+      <label class="fieldLabel" for="commandPreset">Command examples</label><select id="commandPreset"><option value="">Choose an example</option></select>
+      <label class="fieldLabel" for="commandInput">Command or batch</label><textarea id="commandInput" rows="3" spellcheck="false" placeholder="Status&#10;DispenserStatus"></textarea>
+      <div class="consoleActions"><button id="sendCommands" class="primary">Send</button><button id="stopAll" class="danger">STOP ALL</button><button id="clearLog">Clear output</button></div>
+      <pre id="log" aria-live="polite"></pre>
+    </section>
+    <details class="panel statusPanel"><summary>Live status</summary><div id="statusGrid" class="statusGrid"></div></details>
+    <details id="radioPanel" class="panel"><summary>Wi-Fi &amp; Bluetooth</summary><p id="radioSummary" class="hint"></p><p class="hint">Radio changes stop all outputs and may disconnect this page. OS radio control must be enabled during installation. AP + station uses two interfaces for simultaneous operation; one interface uses station with AP fallback.</p><div class="inlineCommands"><button data-command="ModeWiFi">Wi-Fi</button><button data-command="ModeWiFiBLE">Wi-Fi + BLE</button><button data-command="ModeWiFiBLEP">Wi-Fi + persistent BLE</button><button data-command="ModeBLE">BLE only</button><button data-command="ModeBTSerial">Bluetooth serial only</button><button data-command="ModeUSB">Serial only</button></div>
+      <div class="formGrid"><label>Wi-Fi role<select id="wifiRole"><option>STA</option><option>AP</option><option>APSTA</option></select></label><label>Station network<input id="staSsid" maxlength="32" autocomplete="off"></label><label>Station password<input id="staPassword" type="password" maxlength="63" autocomplete="new-password" placeholder="Leave blank to keep saved"></label><label>AP network<input id="apSsid" maxlength="32" value="Pi-Controller" autocomplete="off"></label><label>AP password<input id="apPassword" type="password" maxlength="63" autocomplete="new-password" placeholder="Leave blank to keep saved"></label><label>Transmit power<select id="wifiPower"><option>MAX</option><option>LOW</option></select></label><label>AP fallback<select id="wifiFallback"><option value="ON">Enabled</option><option value="OFF">Disabled</option></select></label><label>Next boot profile<select id="bootRadio"><option>WIFI</option><option>WIFI_BLE</option><option>WIFI_BLE_P</option><option>BLE</option><option>SPP</option><option>USB</option></select></label></div>
+      <label class="checkLabel"><input id="staOpen" type="checkbox">Station network is open — clear its saved password</label>
+      <div class="inlineCommands"><button id="saveRadio">Save radio settings</button><button id="saveApplyRadio" class="primary">Save + apply network settings</button><button data-command="ConfigApply">Apply current settings</button><button data-command="ConfigLoad">Load saved settings</button><button data-command="WiFiStaClear">Clear station credentials</button><button id="saveBootRadio">Save next boot profile</button><button data-command="BleAdvertise">Advertise BLE</button><button data-command="SPP:ON">Enable Bluetooth serial</button><button data-command="SPP:OFF">Disable Bluetooth serial</button></div>
+    </details>
+    <details class="panel"><summary>Self-test, indicators &amp; boot policy</summary><p id="selfTestSummary"></p><progress id="selfTestProgress" value="0" max="12"></progress><div class="inlineCommands"><button data-command="SelfTestStart">Run checks</button><button data-command="SelfTestResume">Resume interrupted checks</button><button data-command="SelfTestAbort">Abort checks</button><button data-command="SelfTestClear">Clear report</button><button data-command="SelfTestStatus">Print report</button></div><p class="hint">Checks exercise configuration, storage and inactive controls. Physical motion and radio transitions need a supervised bench test.</p><p id="bootSummary" class="hint"></p><div class="inlineCommands"><button data-command="ProductionMode">Normal boot</button><button data-command="DebugMode">Check on boot</button><button data-command="IndicatorTest">Test both LEDs</button><button data-command="IndicatorConnectionTest">Test connection LED</button><button data-command="IndicatorActivityTest">Test activity LED</button><button data-command="WebRestart">Restart controller</button><button data-command="Reboot">Reboot Pi</button></div></details>
+    <details id="updatePanel" class="panel"><summary>Application updates</summary><p class="hint">Upload a Pi controller .zip bundle built with the supplied update tool. Outputs stop during updates. The Pi checks file hashes and startup health, and restores the previous release on failure. ESP32 .bin files cannot be used.</p><div class="formGrid"><label>Pi update bundle<input id="updateFile" type="file" accept=".zip,application/zip"></label><label>Private update token<input id="updateToken" type="password" autocomplete="off" placeholder="From the Pi installation config"></label></div><div class="inlineCommands"><button id="uploadUpdate" class="primary">Validate + install update</button><button id="handoffUpdate">Switch from BLE to Wi-Fi for upload</button></div><progress id="uploadProgress" value="0" max="100"></progress><p id="updateSummary" class="hint"></p></details>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

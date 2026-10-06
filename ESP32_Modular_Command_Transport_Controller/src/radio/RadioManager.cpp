@@ -3,6 +3,10 @@
 #include "../util/TextUtil.h"
 #include "../web/WebPortal.h"
 
+#if APP_WIFI_ENABLED
+#include <esp_wifi.h>
+#endif
+
 #if !APP_WIFI_ENABLED
 DisabledWiFiClass WiFi;
 #endif
@@ -30,6 +34,7 @@ RadioManager::RadioManager(
     dnsRunning_(false),
     mdnsRunning_(false),
     wifiRunning_(false),
+    wifiLongRangeActive_(false),
     wifiStartAttempted_(false),
     wifiStartSucceeded_(false),
     apActive_(false),
@@ -496,6 +501,26 @@ bool RadioManager::handleCommand(
     return true;
   }
 
+  if (TextUtil::startsWithIgnoreCase(work, "WiFiLR:")) {
+    if (!TextUtil::parseOnOff(work.substring(7), enabled)) {
+      error(source, requestId, "WiFiLR expects ON or OFF");
+      return true;
+    }
+    if (enabled && !wifiLrSupported()) {
+      error(source, requestId, "WiFi LR is unavailable on this target or WiFi is compiled out");
+      return true;
+    }
+    config_.wifiLongRange = enabled;
+    publish(EventLevel::STATUS, source, requestId,
+      "wifiLRDesired=" + TextUtil::boolWord(enabled) + "; use ConfigApply to restart WiFi and ConfigSave to persist");
+    if (enabled) {
+      publish(EventLevel::WARNING, source, requestId,
+        "LR-only WiFi requires an LR-capable ESP32 peer; phones and ordinary routers cannot connect. USB/BLE can restore WiFiLR:OFF");
+    }
+    publishConfigReadback(source, requestId, "WiFi LR preference updated");
+    return true;
+  }
+
   if (TextUtil::startsWithIgnoreCase(work, "WiFiTxPower:")) {
     int8_t parsed = 0;
     if (!parseWifiPower(work.substring(12), parsed)) {
@@ -638,6 +663,9 @@ String RadioManager::statusText() const {
   text += " staIP=" + String(stationConnected ? WiFi.localIP().toString() : "0.0.0.0");
   text += " wifiIP=" + ipString();
   text += " wifiTxPowerDbm=" + wifiPowerString(config_.wifiTxPowerQuarterDbm);
+  text += " wifiLRSupported=" + TextUtil::boolWord(wifiLrSupported());
+  text += " wifiLRDesired=" + TextUtil::boolWord(config_.wifiLongRange);
+  text += " wifiLRActive=" + TextUtil::boolWord(wifiLongRangeActive_);
   text += " webServer=" + TextUtil::boolWord(webPortal_.isRunning());
   text += " dnsServer=" + TextUtil::boolWord(dnsRunning_);
   text += " fallbackAP=" + TextUtil::boolWord(config_.fallbackAp);
@@ -688,6 +716,9 @@ String RadioManager::stateJson() const {
   json += ",\"stationCredentialsUsable\":" + TextUtil::jsonBool(hasUsableStationCredentials());
   json += ",\"stationIp\":\"" + TextUtil::jsonEscape(stationConnected ? WiFi.localIP().toString() : "0.0.0.0") + "\"";
   json += ",\"txPowerDbm\":" + wifiPowerString(config_.wifiTxPowerQuarterDbm);
+  json += ",\"wifiLRSupported\":" + TextUtil::jsonBool(wifiLrSupported());
+  json += ",\"wifiLRDesired\":" + TextUtil::jsonBool(config_.wifiLongRange);
+  json += ",\"wifiLRActive\":" + TextUtil::jsonBool(wifiLongRangeActive_);
   json += ",\"webServerRunning\":" + TextUtil::jsonBool(webPortal_.isRunning());
   json += ",\"webRequestCount\":" + String(webPortal_.requestCount());
   json += ",\"webLastRequestAtMs\":" + String(webPortal_.lastRequestAtMs());
@@ -729,6 +760,7 @@ String RadioManager::webStateJson() const {
   json += ",\"sppCompiled\":" + TextUtil::jsonBool(AppConfig::ENABLE_CLASSIC_BT_SPP);
   json += ",\"wifiState\":\"" + TextUtil::jsonEscape(runtimeState()) + "\"";
   json += ",\"ip\":\"" + TextUtil::jsonEscape(ipString()) + "\"";
+  json += ",\"wifiLRActive\":" + TextUtil::jsonBool(wifiLongRangeActive_);
   json += ",\"bleRunning\":" + TextUtil::jsonBool(transports_.isBleRunning());
   json += ",\"bleConnected\":" + TextUtil::jsonBool(transports_.isBleConnected());
   json += ",\"sppRunning\":" + TextUtil::jsonBool(transports_.isSppRunning());
@@ -771,6 +803,7 @@ void RadioManager::setDefaults() {
   // Default to AP+STA when Wi-Fi is compiled. With no usable credentials,
   // only the setup AP starts and no router association is attempted.
   config_.wifiRole = WifiRole::AP_STA;
+  config_.wifiLongRange = false;
   config_.wifiTxPowerQuarterDbm = AppConfig::WIFI_TX_POWER_MAX_QUARTER_DBM;
   config_.staSsid = "";
   config_.staPassword = "";
@@ -1460,6 +1493,8 @@ bool RadioManager::loadSettings(
     config_.fallbackAp = preferences.getBool("fallback", config_.fallbackAp);
     config_.wifiRole = static_cast<WifiRole>(preferences.getUChar("mode", static_cast<uint8_t>(config_.wifiRole)));
     config_.wifiTxPowerQuarterDbm = preferences.getChar("txq", config_.wifiTxPowerQuarterDbm);
+    // Older saved configurations always migrate to ordinary WiFi.
+    config_.wifiLongRange = preferences.getBool("lr", false) && wifiLrSupported();
     config_.staSsid = preferences.getString("stassid", config_.staSsid);
     config_.staPassword = preferences.getString("stapass", config_.staPassword);
     config_.apSsid = preferences.getString("apssid", config_.apSsid);
@@ -1518,6 +1553,7 @@ bool RadioManager::saveSettings() {
   ok = preferences.putBool("fallback", config_.fallbackAp) > 0 && ok;
   ok = preferences.putUChar("mode", static_cast<uint8_t>(config_.wifiRole)) > 0 && ok;
   ok = preferences.putChar("txq", config_.wifiTxPowerQuarterDbm) > 0 && ok;
+  ok = preferences.putBool("lr", config_.wifiLongRange) > 0 && ok;
   ok = preferences.putString("stassid", config_.staSsid) == config_.staSsid.length() && ok;
   ok = preferences.putString("stapass", config_.staPassword) == config_.staPassword.length() && ok;
   ok = preferences.putString("apssid", config_.apSsid) == config_.apSsid.length() && ok;
@@ -1537,6 +1573,7 @@ bool RadioManager::saveSettings() {
     preferences.getBool("fallback", !config_.fallbackAp) == config_.fallbackAp &&
     preferences.getUChar("mode", 255) == static_cast<uint8_t>(config_.wifiRole) &&
     preferences.getChar("txq", 127) == config_.wifiTxPowerQuarterDbm &&
+    preferences.getBool("lr", !config_.wifiLongRange) == config_.wifiLongRange &&
     preferences.getString("stassid", "") == config_.staSsid &&
     preferences.getString("stapass", "") == config_.staPassword &&
     preferences.getString("apssid", "") == config_.apSsid &&
@@ -1601,6 +1638,10 @@ bool RadioManager::hasUsableStationCredentials() const {
 }
 
 bool RadioManager::validateConfig(String &reason) const {
+  if (config_.wifiLongRange && !wifiLrSupported()) {
+    reason = "WiFi LR is unavailable on this target";
+    return false;
+  }
   if (static_cast<uint8_t>(config_.bootMode) > static_cast<uint8_t>(BootRadioMode::WIFI_BLE_P)) {
     reason = "invalid boot radio profile";
     return false;
@@ -1711,6 +1752,7 @@ void RadioManager::startWifi() {
     startApSta();
   }
 
+  wifiLongRangeActive_ = wifiRunning_ && wifiLongRangeActive_;
   wifiStartSucceeded_ = wifiRunning_ && webPortal_.isRunning();
   Serial.println(
     "[BOOT][WiFi] startup check running=" + TextUtil::boolWord(wifiRunning_) +
@@ -1736,7 +1778,9 @@ bool RadioManager::beginAccessPoint(bool combinedMode) {
   }
 
   const wifi_mode_t mode = combinedMode ? WIFI_AP_STA : WIFI_AP;
-  WiFi.mode(mode);
+  if (!configureWifiProtocol(mode)) {
+    return false;
+  }
   const char *password = config_.apPassword.length() > 0 ? config_.apPassword.c_str() : nullptr;
   if (!WiFi.softAP(ssid.c_str(), password)) {
     error(CommandSource::INTERNAL, String(), "WiFi access point failed to start");
@@ -1808,7 +1852,9 @@ void RadioManager::startStation() {
     dnsRunning_ = false;
   }
 
-  WiFi.mode(WIFI_STA);
+  if (!configureWifiProtocol(WIFI_STA)) {
+    return;
+  }
   WiFi.setAutoReconnect(true);
   WiFi.begin(config_.staSsid.c_str(), config_.staPassword.c_str());
   wifiRunning_ = true;
@@ -1895,6 +1941,7 @@ void RadioManager::stopWifi() {
     WiFi.mode(WIFI_OFF);
   }
   wifiRunning_ = false;
+  wifiLongRangeActive_ = false;
   apActive_ = false;
   stationAttempted_ = false;
   fallbackActive_ = false;
@@ -2157,6 +2204,52 @@ void RadioManager::serviceRadioHandoff() {
   }
 }
 
+bool RadioManager::wifiLrSupported() const {
+#if APP_WIFI_ENABLED && defined(WIFI_PROTOCOL_LR) && !CONFIG_IDF_TARGET_ESP32C2
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool RadioManager::configureWifiProtocol(wifi_mode_t mode) {
+  wifiLongRangeActive_ = false;
+  if (!WiFi.mode(mode)) {
+    error(CommandSource::INTERNAL, String(), "WiFi mode initialization failed");
+    return false;
+  }
+#if APP_WIFI_ENABLED
+  uint8_t protocol = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
+#if CONFIG_SOC_WIFI_HE_SUPPORT
+  protocol |= WIFI_PROTOCOL_11AX;
+#endif
+#if defined(WIFI_PROTOCOL_LR) && !CONFIG_IDF_TARGET_ESP32C2
+  if (config_.wifiLongRange) {
+    protocol = WIFI_PROTOCOL_LR;
+  }
+#endif
+  // Set every enabled interface before softAP()/begin() configures the link.
+  // Explicitly restore BGN on OFF, including AP+STA and fallback AP startup.
+  const wifi_interface_t interfaces[] = {WIFI_IF_AP, WIFI_IF_STA};
+  const wifi_mode_t bits[] = {WIFI_AP, WIFI_STA};
+  for (size_t i = 0; i < 2; ++i) {
+    if ((mode & bits[i]) == 0) continue;
+    uint8_t actual = 0;
+    const esp_err_t result = esp_wifi_set_protocol(interfaces[i], protocol);
+    if (result != ESP_OK || esp_wifi_get_protocol(interfaces[i], &actual) != ESP_OK || actual != protocol) {
+      error(CommandSource::INTERNAL, String(),
+        "WiFi protocol configuration failed interface=" + String(static_cast<int>(interfaces[i])) +
+        " error=" + String(static_cast<int>(result)));
+      WiFi.mode(WIFI_OFF);
+      wifiRunning_ = false;
+      return false;
+    }
+  }
+  wifiLongRangeActive_ = config_.wifiLongRange;
+#endif
+  return true;
+}
+
 void RadioManager::applyWifiTxPower() {
   if (!wifiRunning_) {
     return;
@@ -2301,6 +2394,8 @@ void RadioManager::publishConfigReadback(
       " runtime=" + runtimeState() +
       " mode=" + roleString() +
       " txPowerDbm=" + wifiPowerString(config_.wifiTxPowerQuarterDbm) +
+      " lrDesired=" + TextUtil::boolWord(config_.wifiLongRange) +
+      " lrActive=" + TextUtil::boolWord(wifiLongRangeActive_) +
       " web=" + TextUtil::boolWord(webPortal_.isRunning()) +
       " dns=" + TextUtil::boolWord(dnsRunning_) +
       " fallbackAP=" + TextUtil::boolWord(config_.fallbackAp)

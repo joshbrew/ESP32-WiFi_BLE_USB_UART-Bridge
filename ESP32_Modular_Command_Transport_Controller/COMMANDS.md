@@ -119,6 +119,8 @@ WiFiFallbackAP:ON
 WiFiFallbackAP:OFF
 WiFiTxPower:LOW
 WiFiTxPower:MAX
+WiFiLR:ON
+WiFiLR:OFF
 WiFiTxPower:<supported dBm>
 WiFiStaSSID:<ssid>
 WiFiStaPassword:<password>
@@ -132,6 +134,12 @@ Supported explicit Wi-Fi TX power values:
 ```text
 19.5, 19, 18.5, 17, 15, 13, 11, 8.5, 7, 5, 2, -1 dBm
 ```
+
+`WiFiLR:ON` selects ESP32 LR-only Wi-Fi on AP and STA; ordinary phones and routers
+cannot connect. OFF is the default. Use `ConfigApply` to restart Wi-Fi with the
+selection and `ConfigSave` to persist it. `RadioStatus` reports desired and active
+LR separately. See the [LR and BLE relay guide](../docs/WIFI_LR.md) for peer setup
+and USB recovery.
 
 ### Saved configuration
 

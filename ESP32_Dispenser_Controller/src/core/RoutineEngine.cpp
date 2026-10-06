@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <stddef.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "../util/TextUtil.h"
 
@@ -11,7 +12,7 @@ namespace {
 
 constexpr const char *PREFERENCES_NAMESPACE = "drone-routine";
 constexpr uint32_t ROUTINE_MAGIC = 0x44524F4EUL;  // "DRON"
-constexpr uint16_t ROUTINE_VERSION = 2;  // 48-byte command records.
+constexpr uint16_t ROUTINE_VERSION = 3;  // 32-bit repeats; record size unchanged.
 
 String slotKey(uint8_t slot) {
   return "slot" + String(slot);
@@ -31,6 +32,8 @@ RoutineEngine::RoutineEngine(EventBus &events, DeviceAddon &addon)
     submitter_(nullptr),
     submitContext_(nullptr),
     routines_{},
+    saved_{},
+    lastRunSucceeded_(false),
     active_(false),
     activeSlot_(0),
     stepIndex_(0),
@@ -44,7 +47,10 @@ RoutineEngine::RoutineEngine(EventBus &events, DeviceAddon &addon)
     lastResult_("never run") {}
 
 void RoutineEngine::begin() {
+  static_assert(offsetof(StoredRoutine, repeatCount) == 8 && offsetof(StoredRoutine, steps) == 28,
+    "Saved routine migration requires the existing record offsets");
   memset(routines_, 0, sizeof(routines_));
+  memset(saved_, 0, sizeof(saved_));
 
   Preferences preferences;
   if (!preferences.begin(PREFERENCES_NAMESPACE, true)) {
@@ -69,11 +75,25 @@ void RoutineEngine::begin() {
       continue;
     }
     StoredRoutine candidate{};
+    const bool read = preferences.getBytes(key.c_str(), &candidate, sizeof(candidate)) == sizeof(candidate);
+    // Version 2 had one repeat byte followed by the name and three padding
+    // bytes. Verify the original bytes before shifting the name into version 3.
+    if (read && candidate.version == 2 && candidate.checksum == checksum(candidate)) {
+      auto *bytes = reinterpret_cast<uint8_t *>(&candidate);
+      const uint8_t repeats = bytes[8];
+      if (repeats > 0 && repeats <= 20 && bytes[9 + AppConfig::ROUTINE_NAME_BYTES] == 0) {
+        memmove(candidate.name, bytes + 9, sizeof(candidate.name));
+        candidate.repeatCount = repeats;
+        candidate.version = ROUTINE_VERSION;
+        candidate.checksum = checksum(candidate);
+      }
+    }
     if (
-      preferences.getBytes(key.c_str(), &candidate, sizeof(candidate)) == sizeof(candidate) &&
+      read &&
       validStoredRoutine(candidate)
     ) {
       routines_[slot] = candidate;
+      saved_[slot] = true;
       loaded++;
     } else {
       rejected++;
@@ -163,6 +183,7 @@ bool RoutineEngine::handleCommand(
       return true;
     }
     initializeRoutine(routines_[slot], name);
+    saved_[slot] = false;
     publish(
       EventLevel::STATUS,
       source,
@@ -195,6 +216,7 @@ bool RoutineEngine::handleCommand(
     if (!addStep(routines_[slot], remainder.substring(separator + 1), reason)) {
       error(source, requestId, reason);
     } else {
+      saved_[slot] = false;
       publish(
         EventLevel::STATUS,
         source,
@@ -222,15 +244,16 @@ bool RoutineEngine::handleCommand(
       error(source, requestId, "stop the active routine before editing it");
     } else if (
       !TextUtil::parseUnsigned32(remainder.substring(separator + 1), repeats) ||
-      repeats < 1 || repeats > AppConfig::ROUTINE_MAX_REPEATS
+      repeats < 1
     ) {
       error(
         source,
         requestId,
-        "repeat count must be 1 to " + String(AppConfig::ROUTINE_MAX_REPEATS)
+        "repeat count must be a positive 32-bit integer"
       );
     } else {
-      routines_[slot].repeatCount = static_cast<uint8_t>(repeats);
+      routines_[slot].repeatCount = repeats;
+      saved_[slot] = false;
       publish(
         EventLevel::STATUS,
         source,
@@ -289,11 +312,6 @@ void RoutineEngine::service() {
   }
 
   const uint32_t now = millis();
-  if (static_cast<uint32_t>(now - runStartedAtMs_) >= AppConfig::ROUTINE_MAX_RUN_MS) {
-    finish(false, "maximum routine run time exceeded");
-    return;
-  }
-
   String readiness;
   if (!addon_.canStartRoutine(readiness)) {
     finish(false, "hardware safety condition changed: " + readiness);
@@ -332,14 +350,18 @@ void RoutineEngine::service() {
   const StoredStep &step = routine.steps[stepIndex_];
   const StepType type = static_cast<StepType>(step.type);
 
-  if (type == StepType::WAIT) {
+  if (type == StepType::START_WAIT && repeatIndex_ > 0) {
+    stepIndex_++;
+    return;
+  }
+  if (type == StepType::WAIT || type == StepType::START_WAIT) {
     if (!waiting_) {
       waiting_ = true;
       waitStartedAtMs_ = now;
       waitUntilMs_ = now + step.value;
       return;
     }
-    if (static_cast<int32_t>(now - waitUntilMs_) < 0) {
+    if (static_cast<uint32_t>(now - waitStartedAtMs_) < step.value) {
       return;
     }
     waiting_ = false;
@@ -356,12 +378,6 @@ void RoutineEngine::service() {
       waiting_ = false;
       stepIndex_++;
       return;
-    }
-    if (
-      static_cast<uint32_t>(now - waitStartedAtMs_) >=
-        AppConfig::ROUTINE_IDLE_WAIT_TIMEOUT_MS
-    ) {
-      finish(false, "WAIT_IDLE timed out");
     }
     return;
   }
@@ -402,6 +418,7 @@ bool RoutineEngine::stop(
   repeatIndex_ = 0;
   const bool hardwareSafe = addon_.stopAll(source, requestId);
   lastResult_ = wasActive ? "stopped: " + reason : "idle";
+  if (wasActive) lastRunSucceeded_ = false;
   if (announce) {
     publish(
       wasActive ? EventLevel::WARNING : EventLevel::INFO,
@@ -417,6 +434,21 @@ bool RoutineEngine::isActive() const {
   return active_;
 }
 
+bool RoutineEngine::runNamed(const String &name, CommandSource source, const String &requestId) {
+  const int slot = findRoutine(name);
+  if (slot < 0 || !saved_[slot]) {
+    error(source, requestId, "routine must be saved before coordinate execution");
+    return false;
+  }
+  return startRoutine(static_cast<uint8_t>(slot), source, requestId);
+}
+
+bool RoutineEngine::hasSaved(const String &name) const {
+  const int slot = findRoutine(name);
+  return slot >= 0 && saved_[slot] && routines_[slot].count > 0;
+}
+bool RoutineEngine::lastRunSucceeded() const { return lastRunSucceeded_; }
+
 String RoutineEngine::stateJson(bool compact) const {
   uint8_t stored = 0;
   for (const StoredRoutine &routine : routines_) {
@@ -424,17 +456,51 @@ String RoutineEngine::stateJson(bool compact) const {
       stored++;
     }
   }
-  String json = "{";
-  json += "\"active\":" + TextUtil::jsonBool(active_);
-  json += ",\"stored\":" + String(stored);
-  json += ",\"capacity\":" + String(AppConfig::ROUTINE_MAX_COUNT);
-  json += ",\"name\":\"";
-  json += active_ ? TextUtil::jsonEscape(String(routines_[activeSlot_].name)) : "";
-  json += "\"";
-  json += ",\"step\":" + String(active_ ? stepIndex_ + 1 : 0);
-  json += ",\"steps\":" + String(active_ ? routines_[activeSlot_].count : 0);
-  json += ",\"repeat\":" + String(active_ ? repeatIndex_ + 1 : 0);
-  json += ",\"repeats\":" + String(active_ ? routines_[activeSlot_].repeatCount : 0);
+  const uint32_t waitElapsed = millis() - waitStartedAtMs_;
+  const uint32_t delayRemaining =
+    active_ && stepIndex_ < routines_[activeSlot_].count && waiting_ &&
+      static_cast<StepType>(routines_[activeSlot_].steps[stepIndex_].type) == StepType::START_WAIT &&
+      waitElapsed < routines_[activeSlot_].steps[stepIndex_].value
+      ? routines_[activeSlot_].steps[stepIndex_].value - waitElapsed : 0;
+  char fields[256];
+  snprintf(fields, sizeof(fields), "{\"active\":%s,\"stored\":%u,\"capacity\":%u,\"name\":\"%s\",\"step\":%u,\"steps\":%u,\"repeat\":%u,\"repeats\":%u,\"delayRemainingMs\":%lu",
+    active_ ? "true" : "false", static_cast<unsigned>(stored), static_cast<unsigned>(AppConfig::ROUTINE_MAX_COUNT),
+    active_ ? routines_[activeSlot_].name : "", static_cast<unsigned>(active_ ? stepIndex_ + 1 : 0),
+    static_cast<unsigned>(active_ ? routines_[activeSlot_].count : 0), static_cast<unsigned>(active_ ? repeatIndex_ + 1 : 0),
+    static_cast<unsigned>(active_ ? routines_[activeSlot_].repeatCount : 0), static_cast<unsigned long>(delayRemaining));
+  String json(fields);
+  // Compact arrays keep all four saved buttons within the bounded state budget.
+  // [name, startDelayMs, pulseMs, gapMs, repeats, saved, stepCount]
+  json += ",\"library\":[";
+  bool first = true;
+  for (uint8_t slot = 0; slot < AppConfig::ROUTINE_MAX_COUNT; ++slot) {
+    const StoredRoutine &routine = routines_[slot];
+    if (!routine.used) continue;
+    uint32_t delayMs = 0, pulseMs = 0, gapMs = 0;
+    uint8_t pulseCount = 0, waitCount = 0;
+    bool simple = true;
+    for (uint8_t i = 0; i < routine.count; ++i) {
+      const StoredStep &step = routine.steps[i];
+      if (static_cast<StepType>(step.type) == StepType::START_WAIT) delayMs = step.value;
+      if (static_cast<StepType>(step.type) == StepType::WAIT) { gapMs = step.value; ++waitCount; }
+      const String command(step.command);
+      if (static_cast<StepType>(step.type) == StepType::COMMAND) {
+        if (TextUtil::startsWithIgnoreCase(command, "Dispense:")) {
+          TextUtil::parseUnsigned32(command.substring(9), pulseMs); ++pulseCount;
+        } else simple = false;
+      }
+    }
+    if (!simple || pulseCount != 1 || waitCount > 1) pulseMs = 0;
+    if (!first) json += ',';
+    first = false;
+    // Names were validated on create/load; quotes and escapes are disallowed.
+    char entry[128];
+    snprintf(entry, sizeof(entry), "[\"%s\",%lu,%lu,%lu,%u,%s,%u]", routine.name,
+      static_cast<unsigned long>(delayMs), static_cast<unsigned long>(pulseMs), static_cast<unsigned long>(gapMs),
+      static_cast<unsigned>(routine.repeatCount), saved_[slot] ? "true" : "false", static_cast<unsigned>(routine.count));
+    json += entry;
+  }
+  json += "]";
   if (!compact) {
     json += ",\"elapsedMs\":" + String(active_ ? millis() - runStartedAtMs_ : 0);
     json += ",\"lastResult\":\"" + TextUtil::jsonEscape(lastResult_) + "\"";
@@ -467,7 +533,7 @@ void RoutineEngine::publishHelp(CommandSource source, const String &requestId) c
     EventLevel::STATUS,
     source,
     requestId,
-    "Routines: RoutineCreate:name RoutineAdd:name:DISPENSE:ms RoutineAdd:name:WAIT:ms RoutineAdd:name:WAIT_IDLE"
+    "Routines: RoutineCreate:name RoutineAdd:name:START_WAIT:ms RoutineAdd:name:DISPENSE:ms RoutineAdd:name:WAIT:ms RoutineAdd:name:WAIT_IDLE"
   );
   publish(
     EventLevel::STATUS,
@@ -522,7 +588,6 @@ bool RoutineEngine::validStoredRoutine(const StoredRoutine &routine) const {
     routine.count == 0 ||
     routine.count > AppConfig::ROUTINE_MAX_STEPS ||
     routine.repeatCount == 0 ||
-    routine.repeatCount > AppConfig::ROUTINE_MAX_REPEATS ||
     routine.name[AppConfig::ROUTINE_NAME_BYTES] != '\0' ||
     !validName(String(routine.name)) ||
     routine.checksum != checksum(routine)
@@ -532,7 +597,7 @@ bool RoutineEngine::validStoredRoutine(const StoredRoutine &routine) const {
   for (uint8_t index = 0; index < routine.count; index++) {
     const StoredStep &step = routine.steps[index];
     const StepType type = static_cast<StepType>(step.type);
-    if (type == StepType::WAIT && step.value > AppConfig::ROUTINE_MAX_WAIT_MS) {
+    if ((type == StepType::WAIT || type == StepType::START_WAIT) && step.value > AppConfig::ROUTINE_MAX_WAIT_MS) {
       return false;
     }
     if (type == StepType::COMMAND) {
@@ -543,9 +608,10 @@ bool RoutineEngine::validStoredRoutine(const StoredRoutine &routine) const {
       if (!safeRoutineCommand(String(step.command), reason)) {
         return false;
       }
-    } else if (type != StepType::WAIT && type != StepType::WAIT_IDLE) {
+    } else if (type != StepType::WAIT && type != StepType::WAIT_IDLE && type != StepType::START_WAIT) {
       return false;
     }
+    if (type == StepType::START_WAIT && index != 0) return false;
   }
   return true;
 }
@@ -562,7 +628,7 @@ bool RoutineEngine::safeRoutineCommand(const String &command, String &reason) co
     uint32_t durationMs = 0;
     if (
       !TextUtil::parseUnsigned32(work.substring(9), durationMs) ||
-      durationMs == 0 || durationMs > AppConfig::DISPENSER_MAX_PULSE_MS
+      durationMs == 0
     ) {
       reason = "stored dispense duration exceeds the configured safety limit";
       return false;
@@ -629,16 +695,21 @@ bool RoutineEngine::addStep(StoredRoutine &routine, const String &specValue, Str
   spec.trim();
   StoredStep step{};
 
-  if (TextUtil::startsWithIgnoreCase(spec, "WAIT:")) {
+  const bool startWait = TextUtil::startsWithIgnoreCase(spec, "START_WAIT:");
+  if (startWait && routine.count != 0) {
+    reason = "START_WAIT must be the first step";
+    return false;
+  }
+  if (startWait || TextUtil::startsWithIgnoreCase(spec, "WAIT:")) {
     uint32_t waitMs = 0;
     if (
-      !TextUtil::parseUnsigned32(spec.substring(5), waitMs) ||
+      !TextUtil::parseUnsigned32(spec.substring(startWait ? 11 : 5), waitMs) ||
       waitMs > AppConfig::ROUTINE_MAX_WAIT_MS
     ) {
       reason = "WAIT must be 0 to " + String(AppConfig::ROUTINE_MAX_WAIT_MS) + " ms";
       return false;
     }
-    step.type = static_cast<uint8_t>(StepType::WAIT);
+    step.type = static_cast<uint8_t>(startWait ? StepType::START_WAIT : StepType::WAIT);
     step.value = waitMs;
     reason = "WAIT " + String(waitMs) + " ms";
   } else if (spec.equalsIgnoreCase("WAIT_IDLE")) {
@@ -650,9 +721,9 @@ bool RoutineEngine::addStep(StoredRoutine &routine, const String &specValue, Str
       uint32_t durationMs = 0;
       if (
         !TextUtil::parseUnsigned32(spec.substring(9), durationMs) ||
-        durationMs == 0 || durationMs > AppConfig::DISPENSER_MAX_PULSE_MS
+        durationMs == 0
       ) {
-        reason = "DISPENSE must be 1 to " + String(AppConfig::DISPENSER_MAX_PULSE_MS) + " ms";
+        reason = "DISPENSE must be 1 to 4294967295 ms";
         return false;
       }
       command = "Dispense:" + String(durationMs);
@@ -689,6 +760,7 @@ bool RoutineEngine::saveSlot(uint8_t slot) {
     preferences.putBytes(key.c_str(), &routines_[slot], sizeof(StoredRoutine)) ==
       sizeof(StoredRoutine);
   preferences.end();
+  if (ok) saved_[slot] = true;
   return ok;
 }
 
@@ -708,6 +780,7 @@ bool RoutineEngine::eraseSlot(uint8_t slot) {
   preferences.end();
   if (ok) {
     memset(&routines_[slot], 0, sizeof(routines_[slot]));
+    saved_[slot] = false;
   }
   return ok;
 }
@@ -733,6 +806,7 @@ void RoutineEngine::showRoutine(
     String description;
     switch (static_cast<StepType>(step.type)) {
       case StepType::WAIT: description = "WAIT:" + String(step.value); break;
+      case StepType::START_WAIT: description = "START_WAIT:" + String(step.value); break;
       case StepType::WAIT_IDLE: description = "WAIT_IDLE"; break;
       case StepType::COMMAND: description = "COMMAND:" + String(step.command); break;
       case StepType::EMPTY:
@@ -747,30 +821,53 @@ void RoutineEngine::showRoutine(
   }
 }
 
-void RoutineEngine::startRoutine(
+bool RoutineEngine::startRoutine(
   uint8_t slot,
   CommandSource source,
   const String &requestId
 ) {
   if (active_) {
     error(source, requestId, "routine " + String(routines_[activeSlot_].name) + " is already active");
-    return;
+    return false;
   }
   if (slot >= AppConfig::ROUTINE_MAX_COUNT || !routines_[slot].used || routines_[slot].count == 0) {
     error(source, requestId, "routine is empty or unavailable");
-    return;
+    return false;
   }
   if (addon_.isBusy() || addon_.hasActiveOutput()) {
     error(source, requestId, "routine start blocked: hardware is already busy or active");
-    return;
+    return false;
   }
   String readiness;
   if (!addon_.canStartRoutine(readiness)) {
     error(source, requestId, "routine start blocked: " + readiness);
-    return;
+    return false;
+  }
+  uint64_t onceMs = 0, cycleMs = 0;
+  const StoredRoutine &routine = routines_[slot];
+  for (uint8_t i = 0; i < routine.count; ++i) {
+    const StoredStep &step = routine.steps[i];
+    const StepType type = static_cast<StepType>(step.type);
+    if (type == StepType::START_WAIT) onceMs += step.value;
+    else if (type == StepType::WAIT) cycleMs += step.value;
+    else if (type == StepType::COMMAND) {
+      const String command(step.command);
+      if (!addon_.validateRoutineCommand(command, readiness)) {
+        error(source, requestId, "routine start blocked: " + readiness); return false;
+      }
+      uint32_t pulse = 0;
+      if (TextUtil::startsWithIgnoreCase(command, "Dispense:") && TextUtil::parseUnsigned32(command.substring(9), pulse)) cycleMs += pulse;
+    }
+  }
+  const uint64_t overhead = onceMs + 1000; // Service/queue margin.
+  const uint64_t duration = cycleMs && routine.repeatCount > (UINT64_MAX - overhead) / cycleMs
+    ? UINT64_MAX : overhead + cycleMs * routine.repeatCount;
+  if (!addon_.canRunRoutineFor(duration, readiness)) {
+    error(source, requestId, "routine exceeds optional arm limit: " + readiness); return false;
   }
 
   active_ = true;
+  lastRunSucceeded_ = false;
   activeSlot_ = slot;
   stepIndex_ = 0;
   repeatIndex_ = 0;
@@ -789,6 +886,7 @@ void RoutineEngine::startRoutine(
       " steps=" + String(routines_[slot].count) +
       " repeats=" + String(routines_[slot].repeatCount)
   );
+  return true;
 }
 
 void RoutineEngine::finish(bool success, const String &reason) {
@@ -796,6 +894,7 @@ void RoutineEngine::finish(bool success, const String &reason) {
   const CommandSource source = runSource_;
   const String requestId = runRequestId_;
   active_ = false;
+  lastRunSucceeded_ = success;
   waiting_ = false;
   stepIndex_ = 0;
   repeatIndex_ = 0;

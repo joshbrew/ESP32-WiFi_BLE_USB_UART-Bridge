@@ -61,6 +61,13 @@ class DeviceAddon {
     return true;
   }
 
+  virtual bool validateRoutineCommand(const String &command, String &reason) const {
+    (void)command; reason = "validated by addon at execution"; return true;
+  }
+  virtual bool canRunRoutineFor(uint64_t durationMs, String &reason) const {
+    (void)durationMs; return canStartRoutine(reason);
+  }
+
   // Return true for external commands that would start or materially alter
   // hardware while a saved routine owns the addon. Status and stop commands
   // should remain available. The router never applies this guard to the

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /*
-  Build the ESP32-hosted web console without third-party packages.
+  Build the ESP32-hosted web console. Run npm ci in the sketch directory first.
 
   Inputs:
     web/index.html
@@ -21,6 +21,7 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
+import { minify } from "terser";
 
 const webDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectDirectory = path.dirname(webDirectory);
@@ -63,9 +64,12 @@ if (!indexHtml.includes(stylesheetMarker) || !indexHtml.includes(scriptMarker)) 
 
 const stylesheetBlock = `  <style>\n${appCss}\n</style>`;
 const scriptBlock = `  <script>\n${appJs}\n</script>`;
-const portalHtml = indexHtml
+const sourcePortalHtml = indexHtml
   .replace(stylesheetMarker, stylesheetBlock)
   .replace(scriptMarker, scriptBlock);
+const result = await minify(appJs, { compress: { passes: 3 }, mangle: { toplevel: true }, format: { comments: false } });
+if (!result.code) throw new Error("JavaScript minification returned no code");
+const portalHtml = sourcePortalHtml.replace(scriptBlock, `<script>${result.code}</script>`);
 
 if (portalHtml.includes('/app.css') || portalHtml.includes('/app.js')) {
   throw new Error("The generated portal still contains external asset references.");
@@ -158,7 +162,7 @@ const standaloneSetup = `<script>
 })();
 </script>`;
 
-let standaloneHtml = portalHtml.replace("\n</style>", `${standaloneCss}\n</style>`);
+let standaloneHtml = sourcePortalHtml.replace("\n</style>", `${standaloneCss}\n</style>`);
 standaloneHtml = standaloneHtml.replace("<body>", `<body>\n${standaloneToolbar}`);
 standaloneHtml = standaloneHtml.replace(scriptBlock, `${standaloneSetup}\n${scriptBlock}`);
 standaloneHtml =

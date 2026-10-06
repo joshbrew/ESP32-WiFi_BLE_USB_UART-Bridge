@@ -129,7 +129,7 @@ void DispenserAddon::service() {
 
   if (
     dispensing_ &&
-    static_cast<int32_t>(now - dispenseEndsAtMs_) >= 0
+    static_cast<uint32_t>(now - dispenseStartedAtMs_) >= static_cast<uint32_t>(dispenseEndsAtMs_ - dispenseStartedAtMs_)
   ) {
     const uint32_t latenessMs = static_cast<uint32_t>(now - dispenseEndsAtMs_);
     if (latenessMs > maxStopLatenessMs_) {
@@ -147,7 +147,7 @@ void DispenserAddon::service() {
   }
 
   if (
-    armed_ &&
+    armed_ && armTimeoutMs_ != 0 &&
     static_cast<uint32_t>(now - armedAtMs_) >= armTimeoutMs_
   ) {
     disarm(
@@ -307,8 +307,7 @@ bool DispenserAddon::handleCommand(
         EventLevel::WARNING,
         source,
         requestId,
-        "[CONFIG] maxPulseMs=" + String(maxPulseMs_) +
-          " compiledCeilingMs=" + String(AppConfig::DISPENSER_MAX_PULSE_MS)
+        "[CONFIG] maxPulseMs=" + String(maxPulseMs_) + " (0=unlimited)"
       );
     }
     return true;
@@ -328,8 +327,7 @@ bool DispenserAddon::handleCommand(
         EventLevel::STATUS,
         source,
         requestId,
-        "[CONFIG] armTimeoutMs=" + String(armTimeoutMs_) +
-          " compiledCeilingMs=" + String(AppConfig::DISPENSER_ARM_TIMEOUT_MS)
+        "[CONFIG] armTimeoutMs=" + String(armTimeoutMs_) + " (0=no expiry)"
       );
     }
     return true;
@@ -568,6 +566,25 @@ bool DispenserAddon::blocksExternalCommandDuringRoutine(const String &command) c
     TextUtil::startsWithIgnoreCase(work, "PayloadProfileDelete:");
 }
 
+bool DispenserAddon::validateRoutineCommand(const String &command, String &reason) const {
+  uint32_t duration = 0;
+  if (!TextUtil::startsWithIgnoreCase(command, "Dispense:") ||
+      !TextUtil::parseUnsigned32(command.substring(9), duration) || !duration || (maxPulseMs_ && duration > maxPulseMs_)) {
+    reason = "routine pulse exceeds the active payload limit or uses unsupported hardware";
+    return false;
+  }
+  return true;
+}
+
+bool DispenserAddon::canRunRoutineFor(uint64_t durationMs, String &reason) const {
+  if (!canStartRoutine(reason)) return false;
+  if (armTimeoutMs_ && durationMs > remainingArmMs(millis())) {
+    reason = "routine exceeds remaining arming window; adjust timings/limits and Arm again";
+    return false;
+  }
+  return true;
+}
+
 void DispenserAddon::appendStateJson(String &json, bool compact) const {
   const uint32_t now = millis();
   json += ",\"addon\":{\"name\":\"drone-dispenser\",\"active\":true";
@@ -583,13 +600,13 @@ void DispenserAddon::appendStateJson(String &json, bool compact) const {
   json += ",\"remainingMs\":" + String(remainingDispenseMs(now));
   json += ",\"armRemainingMs\":" + String(remainingArmMs(now));
   json += ",\"maxPulseMs\":" + String(maxPulseMs_);
+  json += ",\"armTimeoutMs\":" + String(armTimeoutMs_);
   json += ",\"profile\":\"" + TextUtil::jsonEscape(currentProfileName()) + "\"";
   json += ",\"count\":" + String(dispenseCount_);
   json += ",\"maxStopLatenessMs\":" + String(maxStopLatenessMs_);
   if (!compact) {
     json += ",\"profileModified\":" + TextUtil::jsonBool(profileModified_);
     json += ",\"defaultPulseMs\":" + String(defaultPulseMs_);
-    json += ",\"armTimeoutMs\":" + String(armTimeoutMs_);
     json += ",\"profilesStored\":" + String(storedProfileCount());
     json += ",\"profilesCapacity\":" + String(AppConfig::DISPENSER_PROFILE_MAX_COUNT);
     json += ",\"totalDispenseMs\":" + String(totalDispenseMs_);
@@ -681,7 +698,7 @@ bool DispenserAddon::startDispense(
     disarm(source, requestId, "external interlock closed", true, true);
     return false;
   }
-  if (durationMs == 0 || durationMs > maxPulseMs_) {
+  if (durationMs == 0 || (maxPulseMs_ && durationMs > maxPulseMs_)) {
     error(
       source,
       requestId,
@@ -693,7 +710,7 @@ bool DispenserAddon::startDispense(
 
   const uint32_t now = millis();
   const uint32_t armRemainingMs = remainingArmMs(now);
-  if (durationMs > armRemainingMs) {
+  if (armTimeoutMs_ && durationMs > armRemainingMs) {
     error(
       source,
       requestId,
@@ -784,8 +801,8 @@ bool DispenserAddon::arm(CommandSource source, const String &requestId) {
     EventLevel::WARNING,
     source,
     requestId,
-    "[ARMED] dispenser ready for " + String(armTimeoutMs_) +
-      " ms using profile=" + currentProfileName() +
+    "[ARMED] dispenser ready " + (armTimeoutMs_ ? "for " + String(armTimeoutMs_) + " ms" : String("without expiry")) +
+      " using profile=" + currentProfileName() +
       "; output remains inactive until Dispense:<ms>"
   );
   return true;
@@ -851,25 +868,15 @@ bool DispenserAddon::validateTimings(
     reason = "default pulse must be at least 1 ms";
     return false;
   }
-  if (maxPulseMs == 0 || maxPulseMs > AppConfig::DISPENSER_MAX_PULSE_MS) {
-    reason = "maximum pulse must be 1 to the compiled ceiling of " +
-      String(AppConfig::DISPENSER_MAX_PULSE_MS) + " ms";
-    return false;
-  }
-  if (defaultPulseMs > maxPulseMs) {
+  if (maxPulseMs && defaultPulseMs > maxPulseMs) {
     reason = "default pulse cannot exceed the profile maximum pulse";
     return false;
   }
-  if (armTimeoutMs < maxPulseMs) {
+  if (armTimeoutMs && armTimeoutMs < (maxPulseMs ? maxPulseMs : defaultPulseMs)) {
     reason = "arm timeout must accommodate one maximum-length pulse";
     return false;
   }
-  if (armTimeoutMs > AppConfig::DISPENSER_ARM_TIMEOUT_MS) {
-    reason = "arm timeout cannot exceed the compiled ceiling of " +
-      String(AppConfig::DISPENSER_ARM_TIMEOUT_MS) + " ms";
-    return false;
-  }
-  reason = "valid bounded timings";
+  reason = "valid timings; zero disables optional limits";
   return true;
 }
 
@@ -1399,16 +1406,17 @@ bool DispenserAddon::eraseSettings() {
 }
 
 uint32_t DispenserAddon::remainingDispenseMs(uint32_t now) const {
-  if (!dispensing_ || static_cast<int32_t>(dispenseEndsAtMs_ - now) <= 0) {
-    return 0;
-  }
-  return dispenseEndsAtMs_ - now;
+  if (!dispensing_) return 0;
+  const uint32_t duration = dispenseEndsAtMs_ - dispenseStartedAtMs_;
+  const uint32_t elapsed = now - dispenseStartedAtMs_;
+  return elapsed >= duration ? 0 : duration - elapsed;
 }
 
 uint32_t DispenserAddon::remainingArmMs(uint32_t now) const {
   if (!armed_) {
     return 0;
   }
+  if (!armTimeoutMs_) return UINT32_MAX;
   const uint32_t elapsed = static_cast<uint32_t>(now - armedAtMs_);
   return elapsed >= armTimeoutMs_
     ? 0

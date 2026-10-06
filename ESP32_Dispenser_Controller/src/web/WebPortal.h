@@ -7,6 +7,7 @@
 #include "../config/AppConfig.h"
 #include "../core/AppTypes.h"
 #include "../core/EventBus.h"
+using PositionSubmitter = bool (*)(void *, const String &);
 
 #if APP_WIFI_ENABLED
 // Dependency order matters here. ESPAsyncWebServer 3.11.x requires the matching
@@ -58,6 +59,7 @@ class WebPortal {
   );
 
   void prepare();
+  void configurePositionSubmitter(PositionSubmitter submitter, void *context);
   void start();
   // AsyncTCP handles sockets independently. This service call only refreshes the
   // thread-safe state snapshot returned by /api/state.
@@ -198,6 +200,8 @@ class WebPortal {
   void *submitContext_;
   StateProvider stateProvider_;
   void *stateContext_;
+  PositionSubmitter positionSubmitter_ = nullptr;
+  void *positionContext_ = nullptr;
   bool routesInstalled_;
   bool prepared_;
   bool running_;
@@ -239,6 +243,7 @@ class WebPortal {
     void *stateContext
   );
   void prepare();
+  void configurePositionSubmitter(PositionSubmitter submitter, void *context);
   void start();
   void service();
   bool isRunning() const;

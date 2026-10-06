@@ -1,0 +1,35 @@
+[Unit]
+Description=Raspberry Pi command bridge and dispenser
+After=network.target bluetooth.service
+Wants=bluetooth.service
+Requires=pi-controller-recovery.service
+After=pi-controller-recovery.service
+
+[Service]
+Type=simple
+User=pi-controller
+Group=pi-controller
+SupplementaryGroups=gpio dialout i2c
+WorkingDirectory=/opt/pi-controller/current
+ExecStart=/opt/pi-controller/.venv/bin/python -m bridge --config /etc/pi-controller/config.json
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+StateDirectory=pi-controller
+StateDirectoryMode=0750
+UMask=0027
+Environment=PYTHONUNBUFFERED=1
+# The exact root-owned helper is allowed through sudo; it starts isolated
+# systemd jobs with a fixed operation allowlist. No shell command is accepted.
+NoNewPrivileges=false
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

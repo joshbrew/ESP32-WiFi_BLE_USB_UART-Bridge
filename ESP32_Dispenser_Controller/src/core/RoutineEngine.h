@@ -31,6 +31,9 @@ class RoutineEngine {
     bool announce = true
   );
   bool isActive() const;
+  bool runNamed(const String &name, CommandSource source, const String &requestId);
+  bool hasSaved(const String &name) const;
+  bool lastRunSucceeded() const;
   String stateJson(bool compact) const;
   String statusText() const;
   void publishHelp(CommandSource source, const String &requestId) const;
@@ -40,7 +43,8 @@ class RoutineEngine {
     EMPTY = 0,
     WAIT = 1,
     COMMAND = 2,
-    WAIT_IDLE = 3
+    WAIT_IDLE = 3,
+    START_WAIT = 4
   };
 
   struct StoredStep {
@@ -54,7 +58,7 @@ class RoutineEngine {
     uint16_t version;
     uint8_t used;
     uint8_t count;
-    uint8_t repeatCount;
+    uint32_t repeatCount;
     char name[AppConfig::ROUTINE_NAME_BYTES + 1];
     StoredStep steps[AppConfig::ROUTINE_MAX_STEPS];
     uint32_t checksum;
@@ -75,7 +79,7 @@ class RoutineEngine {
     CommandSource source,
     const String &requestId
   ) const;
-  void startRoutine(
+  bool startRoutine(
     uint8_t slot,
     CommandSource source,
     const String &requestId
@@ -98,10 +102,12 @@ class RoutineEngine {
   CommandSubmitter submitter_;
   void *submitContext_;
   StoredRoutine routines_[AppConfig::ROUTINE_MAX_COUNT];
+  bool saved_[AppConfig::ROUTINE_MAX_COUNT];
+  bool lastRunSucceeded_;
   bool active_;
   uint8_t activeSlot_;
   uint8_t stepIndex_;
-  uint8_t repeatIndex_;
+  uint32_t repeatIndex_;
   bool waiting_;
   uint32_t runStartedAtMs_;
   uint32_t waitStartedAtMs_;

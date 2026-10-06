@@ -12,6 +12,9 @@ firmware.
 
 ## Start here
 
+For optional ESP32 LR-only Wi-Fi and a nearby Bluetooth ground relay, read the
+[LR setup and relay guide](../docs/WIFI_LR.md). Ordinary Wi-Fi remains the default.
+
 1. Read [docs/STUDENT_GUIDE.md](docs/STUDENT_GUIDE.md).
 2. Confirm the external switch is held inactive while the ESP32 is reset.
 3. Open `ESP32_Dispenser_Controller.ino` in Arduino IDE.
@@ -56,7 +59,7 @@ Dispense:250
 Disarm
 ```
 
-`Arm` does not activate GPIO26. It opens a temporary 60-second window during
+`Arm` does not activate GPIO26. It opens the active profile's temporary arming window during
 which a bounded dispense pulse may be requested. Every reset, `StopAll`, routine
 completion, fault, or arm timeout leaves the output inactive and disarmed.
 The requested pulse must fit entirely inside the remaining arm window; otherwise
@@ -93,13 +96,14 @@ DISARMED -> ARMED -> DISPENSING
 - The default dispenser initializes its safe output immediately after USB serial,
   before indicator animations, self-test recovery, or radio startup.
 - Arming is never written to NVS.
-- Dispense duration must fit the active profile maximum, which can never exceed
-  the compiled `DISPENSER_MAX_PULSE_MS` ceiling.
-- The default compiled maximum pulse is 60000 ms (60 seconds). The default
-  arming window is 120000 ms so a full-length pulse can fit after arming.
+- Pulse, initial delay, and gap use unsigned 32-bit milliseconds (up to
+  4294967295 ms, about 49.7 days per step). Repeats accept 1–4294967295.
+  There is no total routine runtime or WAIT_IDLE timeout cap.
+- Maximum pulse and automatic arming expiry default to disabled (0).
 - Saved dispenser settings and named profiles keep their own maximum pulse after
-  a firmware update. To allow a 60-second pulse with the active saved setup,
-  disarm, send `DispenserArmTimeout:120000` and `DispenserMaxPulse:60000`, then
+  a firmware update. To remove limits in the active saved setup, use the console's
+  **Remove saved time limits**, or disarm and send `DispenserArmTimeout:0` and
+  `DispenserMaxPulse:0`, then
   save with `DispenserSave` or `PayloadProfileSave:<active-name>` as appropriate.
 - A new dispense request is rejected while a pulse is already active, so
   repeated commands cannot silently extend one activation.
@@ -194,10 +198,14 @@ IDE tab. It contains the settings students are expected to change:
 #define DRONE_CFG_DISPENSER_PIN 26
 #define DRONE_CFG_DISPENSER_ACTIVE_HIGH 1
 #define DRONE_CFG_DISPENSER_DEFAULT_PULSE_MS 250UL
-#define DRONE_CFG_DISPENSER_MAX_PULSE_MS 60000UL
-#define DRONE_CFG_DISPENSER_ARM_TIMEOUT_MS 120000UL
+#define DRONE_CFG_DISPENSER_MAX_PULSE_MS 0UL
+#define DRONE_CFG_DISPENSER_ARM_TIMEOUT_MS 0UL
 #define DRONE_CFG_INTERLOCK_PIN -1
 ```
+
+See [saved routines and drone position](docs/COORDINATE_ROUTINES.md) for the
+initial-delay controls, Wi-Fi client setup, ordered coordinates, MAVLink input,
+and the position API an XAG integration provider can connect to.
 
 The same tab groups the status LED pins, local access-point identity, and the
 advanced stepper/DAC pinout. Set `DRONE_USE_QUICK_CONFIG` to `0` to ignore all
@@ -290,11 +298,14 @@ from a laptop and targeting a controller URL; it is not embedded in firmware.
 After changing any frontend source, rebuild both generated files with Node.js:
 
 ```text
+npm ci
 node web/build_web_assets.mjs
 ```
 
-The script uses only Node's built-in modules and produces deterministic gzip
-bytes. To check for stale generated files without changing anything, run:
+The script uses the pinned Terser build dependency to compact the embedded
+JavaScript and produces deterministic gzip bytes. The standalone console keeps
+readable JavaScript. Arduino builds use the checked-in generated assets; npm is
+needed only when regenerating them. To check for stale generated files, run:
 
 ```text
 node web/build_web_assets.mjs --check
