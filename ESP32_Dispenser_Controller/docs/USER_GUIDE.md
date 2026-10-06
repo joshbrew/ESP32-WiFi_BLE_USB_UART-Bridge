@@ -1,6 +1,6 @@
-# Student guide: first dispenser lab
+# User guide: first dispenser setup
 
-This lab introduces the application in the same order as a normal Arduino
+This guide introduces the application in the same order as a normal Arduino
 sketch: configuration, `setup()`, repeated service, commands, then automation.
 
 ## 1. Find the approachable layer
@@ -17,7 +17,7 @@ status LEDs, access-point identity, and advanced bench pinout. Each setting has
 a plain-language comment. Leave profile `1` selected for the aircraft.
 
 `src/config/AppConfig.h` contains safe fallbacks, feature switches, queue sizes,
-and expert-only limits. You should not need it for the first lab.
+and expert-only limits. You should not need it for the initial setup.
 
 Do not begin by editing the radio or web implementation.
 

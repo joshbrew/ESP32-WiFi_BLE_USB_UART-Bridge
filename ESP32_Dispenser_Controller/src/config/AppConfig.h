@@ -8,7 +8,7 @@
 // ---------------------------------------------------------------------------
 // ADVANCED BUILD SETTINGS AND SAFE FALLBACKS
 // ---------------------------------------------------------------------------
-// Students should start in the QuickConfig.h Arduino tab. If its master switch
+// Users should start in the QuickConfig.h Arduino tab. If its master switch
 // is off, or an individual override is absent, the fallback values in this file
 // are used. Advanced build systems may still define one APP_ADDON_* macro
 // directly; a direct selection takes precedence over the quick profile number.
@@ -389,7 +389,7 @@ constexpr uint16_t GEO_MAVLINK_UDP_PORT = 14550;
 constexpr uint8_t GEO_MAVLINK_SYSTEM_ID = 1;
 constexpr uint8_t GEO_MAVLINK_COMPONENT_ID = 1;
 
-// Student-setting guardrails. These cost no flash or RAM and turn unsafe pin
+// User-setting guardrails. These cost no flash or RAM and turn unsafe pin
 // or timing combinations into clear compiler errors instead of field failures.
 constexpr bool isClassicEsp32OutputPin(int pin) {
   return pin >= 0 && pin <= 33 && !(pin >= 6 && pin <= 11);

@@ -2,7 +2,7 @@
 
 ESP32 firmware for a drone-mounted caulk-gel dispenser. The normal build uses
 GPIO26 to control an external analog switch connected to the applicator trigger.
-It provides a simple student-facing Arduino sketch while keeping the more
+It provides a simple user-facing Arduino sketch while keeping the more
 advanced FreeRTOS, Wi-Fi, BLE, command, routine, logging, and OTA systems in
 separate modules.
 
@@ -15,7 +15,7 @@ firmware.
 For optional ESP32 LR-only Wi-Fi and a nearby Bluetooth ground relay, read the
 [LR setup and relay guide](../docs/WIFI_LR.md). Ordinary Wi-Fi remains the default.
 
-1. Read [docs/STUDENT_GUIDE.md](docs/STUDENT_GUIDE.md).
+1. Read [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 2. Confirm the external switch is held inactive while the ESP32 is reset.
 3. Open `ESP32_Dispenser_Controller.ino` in Arduino IDE.
 4. Open the neighboring `QuickConfig.h` tab and confirm the pinout.
@@ -194,10 +194,10 @@ StopAll
 hardware in the advanced profile. Only a small hardware-action allowlist is
 accepted; administrative commands cannot be stored in routines.
 
-## Student settings
+## User settings
 
 `QuickConfig.h` sits directly beside the `.ino` and appears as another Arduino
-IDE tab. It contains the settings students are expected to change:
+IDE tab. It contains the settings users are expected to change:
 
 ```cpp
 #define DRONE_CFG_HARDWARE_PROFILE 1
@@ -277,10 +277,10 @@ src/web/WebPortal.*                     HTTP API, portal, and OTA
 web/                                    Editable browser UI sources
 src/addons/stepper_dac/                 Optional advanced hardware profile
 COMMANDS.md                             Complete command reference
-docs/STUDENT_GUIDE.md                   Guided first lab
+docs/USER_GUIDE.md                      Guided first setup
 ```
 
-The `.ino` intentionally stays small. Students can follow normal Arduino
+The `.ino` intentionally stays small. Users can follow normal Arduino
 `setup()` and `loop()` while each sophisticated subsystem remains independently
 testable and replaceable.
 

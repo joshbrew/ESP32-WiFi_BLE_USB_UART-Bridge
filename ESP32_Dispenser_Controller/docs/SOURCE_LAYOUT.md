@@ -20,9 +20,9 @@ ESP32_Dispenser_Controller/
 |   `-- web/                                HTTP, OTA, embedded portal bytes
 |-- web/                                    Editable browser sources
 |   `-- build_web_assets.mjs                Gzip/standalone generator
-`-- docs/                                   Student and advanced notes
+`-- docs/                                   User and advanced notes
 ```
 
-Students should normally read `QuickConfig.h`, the `.ino`, `DispenserAddon.*`,
+Users should normally read `QuickConfig.h`, the `.ino`, `DispenserAddon.*`,
 and `RoutineEngine.*` in that order. `AppConfig.h`, transport, and radio modules
 are kept out of the introductory path.
