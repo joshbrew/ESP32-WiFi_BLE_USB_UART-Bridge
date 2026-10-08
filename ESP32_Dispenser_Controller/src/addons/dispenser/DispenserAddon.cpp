@@ -16,7 +16,7 @@ namespace {
 constexpr const char *PREFERENCES_NAMESPACE = "drone-disp";
 constexpr const char *ACTIVE_PROFILE_KEY = "activeprof";
 constexpr uint32_t PROFILE_MAGIC = 0x5041594CUL;  // "PAYL"
-constexpr uint16_t PROFILE_VERSION = 1;
+constexpr uint16_t PROFILE_VERSION = 2;
 
 String profileKey(uint8_t slot) {
   return "prof" + String(slot);
@@ -84,7 +84,7 @@ void DispenserAddon::begin() {
   // Set the output latch before selecting OUTPUT mode to minimize a boot-time
   // pulse. The external analog-switch circuit must still provide a hardware
   // inactive bias while the ESP32 itself is reset or unpowered.
-  applyInactivePin(outputPin_);
+  for (uint8_t i = 0; i < pinCount_; ++i) applyInactivePin(pins_[i]);
 
   if (AppConfig::PIN_DISPENSER_INTERLOCK >= 0) {
     pinMode(AppConfig::PIN_DISPENSER_INTERLOCK, INPUT);
@@ -195,12 +195,13 @@ bool DispenserAddon::handleCommand(
     return true;
   }
 
-  if (TextUtil::startsWithIgnoreCase(work, "Dispense:")) {
+  if (TextUtil::startsWithIgnoreCase(work, "Dispense:") || TextUtil::startsWithIgnoreCase(work, "DispensePin:")) {
     uint32_t durationMs = 0;
-    if (!TextUtil::parseUnsigned32(work.substring(9), durationMs)) {
-      error(source, requestId, "Dispense requires milliseconds, for example Dispense:250");
+    int pin = -1;
+    if (!TextUtil::parseDispense(work, pin, durationMs)) {
+      error(source, requestId, "use Dispense:ms or DispensePin:pin,ms");
     } else {
-      startDispense(durationMs, source, requestId, "timed dispense command");
+      startDispense(durationMs, source, requestId, "timed dispense command", pin);
     }
     return true;
   }
@@ -230,10 +231,17 @@ bool DispenserAddon::handleCommand(
     return true;
   }
 
+  if (TextUtil::startsWithIgnoreCase(work, "DispenserOutputs:")) {
+    String reason;
+    if (armed_ || dispensing_) error(source, requestId, "disarm before changing outputs");
+    else if (!configurePins(work.substring(17), reason)) error(source, requestId, reason);
+    else publish(EventLevel::STATUS, source, requestId, "[CONFIG] outputs configured; DispenserSave to persist");
+    return true;
+  }
   if (TextUtil::startsWithIgnoreCase(work, "DispenserPin:")) {
     long parsed = 0;
     String reason;
-    if (!TextUtil::parseLong(work.substring(13), parsed)) {
+    if (!TextUtil::parseLong(work.substring(13), parsed) || parsed < 0 || parsed > 39) {
       error(source, requestId, "DispenserPin requires an integer GPIO number");
     } else if (armed_ || dispensing_) {
       error(source, requestId, "disarm before changing the dispenser pin");
@@ -258,9 +266,9 @@ bool DispenserAddon::handleCommand(
     } else if (armed_ || dispensing_) {
       error(source, requestId, "disarm before changing output polarity");
     } else {
-      applyInactivePin(outputPin_);
+      writeOutput(false);
       activeHigh_ = enabled;
-      applyInactivePin(outputPin_);
+      writeOutput(false);
       profileModified_ = true;
       publish(
         EventLevel::WARNING,
@@ -470,15 +478,11 @@ bool DispenserAddon::handleCommand(
     if (armed_ || dispensing_) {
       error(source, requestId, "disarm before restoring dispenser defaults");
     } else {
-      const int previousPin = outputPin_;
-      applyInactivePin(previousPin);
+      releasePins();
       setDefaults();
       profileModified_ = true;
       standaloneSettingsActive_ = false;
-      applyInactivePin(outputPin_);
-      if (previousPin != outputPin_) {
-        pinMode(previousPin, INPUT);
-      }
+      for (uint8_t i = 0; i < pinCount_; ++i) applyInactivePin(pins_[i]);
       publish(
         EventLevel::STATUS,
         source,
@@ -557,6 +561,8 @@ bool DispenserAddon::blocksExternalCommandDuringRoutine(const String &command) c
     work.equalsIgnoreCase("DispenserErase") ||
     work.equalsIgnoreCase("PayloadProfileEraseAll") ||
     TextUtil::startsWithIgnoreCase(work, "Dispense:") ||
+    TextUtil::startsWithIgnoreCase(work, "DispensePin:") ||
+    TextUtil::startsWithIgnoreCase(work, "DispenserOutputs:") ||
     TextUtil::startsWithIgnoreCase(work, "DispenserPin:") ||
     TextUtil::startsWithIgnoreCase(work, "DispenserActiveHigh:") ||
     TextUtil::startsWithIgnoreCase(work, "DispenserDefaultPulse:") ||
@@ -569,9 +575,9 @@ bool DispenserAddon::blocksExternalCommandDuringRoutine(const String &command) c
 
 bool DispenserAddon::validateRoutineCommand(const String &command, String &reason) const {
   uint32_t duration = 0;
-  if (!TextUtil::startsWithIgnoreCase(command, "Dispense:") ||
-      !TextUtil::parseUnsigned32(command.substring(9), duration) || !duration || (maxPulseMs_ && duration > maxPulseMs_)) {
-    reason = "routine pulse exceeds the active payload limit or uses unsupported hardware";
+  int pin = -1;
+  if (!TextUtil::parseDispense(command, pin, duration) || (pin >= 0 && !ownsPin(pin)) || (maxPulseMs_ && duration > maxPulseMs_)) {
+    reason = "routine needs a configured output and a pulse within the active payload limit";
     return false;
   }
   return true;
@@ -608,7 +614,15 @@ void DispenserAddon::appendStateJson(String &json, bool compact) const {
       static_cast<unsigned long>(totalDispenseMs_), static_cast<unsigned long>(maxServiceGapMs_), static_cast<unsigned long>(lateStopCount_));
     json += fields; json += TextUtil::jsonEscape(lastReason_); json += '"';
   }
-  json += "}";
+  snprintf(fields, sizeof(fields), ",\"activePin\":%d,\"defaultPin\":%d,\"outputsCapacity\":%u,\"pins\":[", activePin_, AppConfig::PIN_DISPENSER, static_cast<unsigned>(AppConfig::DISPENSER_MAX_OUTPUTS));
+  json += fields;
+  for (uint8_t i = 0; i < pinCount_; ++i) { if (i) json += ','; json += String(pins_[i]); }
+  json += "],\"availablePins\":[";
+  bool first = true; String reason;
+  for (int pin = 0; pin <= 39; ++pin) if (validatePin(pin, reason)) {
+    if (!first) json += ','; first = false; json += String(pin);
+  }
+  json += "]}";
 }
 
 void DispenserAddon::publishHelp(
@@ -618,13 +632,13 @@ void DispenserAddon::publishHelp(
 ) const {
   events.publish(
     EventLevel::STATUS,
-    "Dispenser: Arm Disarm Dispense:milliseconds DispenseStop DispenserStatus StopAll",
+    "Dispenser: Arm Disarm Dispense:ms DispensePin:pin,ms DispenseStop DispenserStatus StopAll",
     source,
     requestId
   );
   events.publish(
     EventLevel::STATUS,
-    "Dispenser config: DispenserPin:gpio DispenserActiveHigh:ON|OFF DispenserDefaultPulse:ms DispenserMaxPulse:ms DispenserArmTimeout:ms",
+    "Dispenser config: DispenserOutputs:pins DispenserPin:gpio DispenserActiveHigh:ON|OFF DispenserDefaultPulse:ms DispenserMaxPulse:ms DispenserArmTimeout:ms",
     source,
     requestId
   );
@@ -666,7 +680,8 @@ bool DispenserAddon::startDispense(
   uint32_t durationMs,
   CommandSource source,
   const String &requestId,
-  const char *reason
+  const char *reason,
+  int pin
 ) {
   if (!initialized_) {
     error(source, requestId, "dispenser is not initialized");
@@ -676,6 +691,8 @@ bool DispenserAddon::startDispense(
     error(source, requestId, "dispenser is DISARMED; send Arm first");
     return false;
   }
+  if (pin < 0) pin = outputPin_;
+  if (!ownsPin(pin)) { error(source, requestId, "dispense pin is not configured"); return false; }
   if (dispensing_) {
     error(
       source,
@@ -713,7 +730,7 @@ bool DispenserAddon::startDispense(
     );
     return false;
   }
-  writeOutput(true);
+  activePin_ = pin; writeOutput(true);
   dispensing_ = true;
   dispenseStartedAtMs_ = now;
   dispenseEndsAtMs_ = now + durationMs;
@@ -724,7 +741,7 @@ bool DispenserAddon::startDispense(
     EventLevel::MOTION,
     source,
     requestId,
-    "[RUN] dispensing durationMs=" + String(durationMs) + " GPIO" + String(outputPin_)
+    "[RUN] dispensing durationMs=" + String(durationMs) + " GPIO" + String(activePin_)
   );
   return true;
 }
@@ -737,6 +754,7 @@ void DispenserAddon::stopDispense(
 ) {
   const bool wasDispensing = dispensing_;
   writeOutput(false);
+  activePin_ = -1;
   dispensing_ = false;
   dispenseStartedAtMs_ = 0;
   dispenseEndsAtMs_ = 0;
@@ -814,7 +832,8 @@ void DispenserAddon::writeOutput(bool active) {
     return;
   }
   const bool high = active == activeHigh_;
-  digitalWrite(outputPin_, high ? HIGH : LOW);
+  for (uint8_t i = 0; i < pinCount_; ++i)
+    digitalWrite(pins_[i], active && pins_[i] == activePin_ ? (high ? HIGH : LOW) : (activeHigh_ ? LOW : HIGH));
 }
 
 bool DispenserAddon::interlockOpen() const {
@@ -882,14 +901,47 @@ bool DispenserAddon::setConfiguredPin(int pin, String &reason) {
     reason = "pin unchanged";
     return true;
   }
-  const int previousPin = outputPin_;
-  applyInactivePin(previousPin);
-  outputPin_ = pin;
-  applyInactivePin(outputPin_);
-  pinMode(previousPin, INPUT);
+  uint8_t pins[AppConfig::DISPENSER_MAX_OUTPUTS]; memcpy(pins, pins_, sizeof(pins)); pins[0] = pin;
+  if (!validatePins(pins, pinCount_, reason)) return false;
+  applyPins(pins, pinCount_);
   profileModified_ = true;
   reason = "pin changed";
   return true;
+}
+
+bool DispenserAddon::ownsPin(int pin) const {
+  for (uint8_t i = 0; i < pinCount_; ++i) if (pins_[i] == pin) return true;
+  return false;
+}
+bool DispenserAddon::validatePins(const uint8_t *pins, uint8_t count, String &reason) const {
+  if (!count || count > AppConfig::DISPENSER_MAX_OUTPUTS) { reason = "invalid output count"; return false; }
+  for (uint8_t i = 0; i < count; ++i) {
+    if (!validatePin(pins[i], reason)) return false;
+    for (uint8_t j = 0; j < i; ++j) if (pins[i] == pins[j]) { reason = "output pins must be unique"; return false; }
+  }
+  return true;
+}
+void DispenserAddon::releasePins() {
+  for (uint8_t i = 0; i < pinCount_; ++i) { applyInactivePin(pins_[i]); pinMode(pins_[i], INPUT); }
+}
+void DispenserAddon::applyPins(const uint8_t *pins, uint8_t count) {
+  releasePins(); memcpy(pins_, pins, count); pinCount_ = count; outputPin_ = pins_[0];
+  for (uint8_t i = 0; i < pinCount_; ++i) applyInactivePin(pins_[i]);
+  activePin_ = -1; profileModified_ = true;
+}
+bool DispenserAddon::configurePins(const String &value, String &reason) {
+  uint8_t pins[AppConfig::DISPENSER_MAX_OUTPUTS], count = 0; unsigned start = 0;
+  do {
+    const int comma = value.indexOf(',', start); long pin = 0;
+    if (count == AppConfig::DISPENSER_MAX_OUTPUTS || !TextUtil::parseLong(comma < 0 ? value.substring(start) : value.substring(start, comma), pin) || pin < 0 || pin > 39) {
+      reason = "use 1-8 GPIO numbers separated by commas"; return false;
+    }
+    pins[count++] = pin;
+    if (comma < 0) break;
+    start = comma + 1;
+  } while (true);
+  if (!validatePins(pins, count, reason)) return false;
+  applyPins(pins, count); return true;
 }
 
 bool DispenserAddon::setDefaultPulse(uint32_t value, String &reason) {
@@ -928,6 +980,7 @@ void DispenserAddon::setDefaults() {
   defaultPulseMs_ = AppConfig::DISPENSER_DEFAULT_PULSE_MS;
   maxPulseMs_ = AppConfig::DISPENSER_MAX_PULSE_MS;
   armTimeoutMs_ = AppConfig::DISPENSER_ARM_TIMEOUT_MS;
+  pinCount_ = 1; pins_[0] = outputPin_; activePin_ = -1;
 }
 
 bool DispenserAddon::loadProfileLibrary() {
@@ -951,9 +1004,24 @@ bool DispenserAddon::loadProfileLibrary() {
       continue;
     }
     StoredProfile candidate{};
+    bool read = storedLength == sizeof(candidate) &&
+      preferences.getBytes(key.c_str(), &candidate, sizeof(candidate)) == sizeof(candidate);
+    // Version 1 ended at the name: retain existing single-output profiles.
+    constexpr size_t prefix = offsetof(StoredProfile, pinCount);
+    uint8_t old[prefix + sizeof(uint32_t)]{};
+    if (storedLength == sizeof(old) && preferences.getBytes(key.c_str(), old, sizeof(old)) == sizeof(old)) {
+      uint32_t hash = 2166136261UL, savedHash = 0;
+      for (size_t i = 0; i < prefix; ++i) { hash ^= old[i]; hash *= 16777619UL; }
+      memcpy(&savedHash, old + prefix, sizeof(savedHash));
+      memcpy(&candidate, old, prefix);
+      read = hash == savedHash && candidate.version == 1;
+      if (read) {
+        candidate.version = PROFILE_VERSION; candidate.pinCount = 1; candidate.pins[0] = candidate.outputPin;
+        candidate.checksum = profileChecksum(candidate);
+      }
+    }
     if (
-      storedLength == sizeof(candidate) &&
-      preferences.getBytes(key.c_str(), &candidate, sizeof(candidate)) == sizeof(candidate) &&
+      read &&
       validStoredProfile(candidate)
     ) {
       profiles_[slot] = candidate;
@@ -976,6 +1044,7 @@ bool DispenserAddon::loadProfileLibrary() {
       defaultPulseMs_ = profile.defaultPulseMs;
       maxPulseMs_ = profile.maxPulseMs;
       armTimeoutMs_ = profile.armTimeoutMs;
+      pinCount_ = profile.pinCount; memcpy(pins_, profile.pins, sizeof(pins_));
       activeProfileSlot_ = static_cast<int8_t>(slot);
       profileModified_ = false;
       standaloneSettingsActive_ = false;
@@ -1040,7 +1109,7 @@ bool DispenserAddon::validStoredProfile(const StoredProfile &profile) const {
     return false;
   }
   String reason;
-  return validatePin(profile.outputPin, reason) &&
+  return profile.pins[0] == profile.outputPin && validatePins(profile.pins, profile.pinCount, reason) &&
     validateTimings(
       profile.defaultPulseMs,
       profile.maxPulseMs,
@@ -1071,6 +1140,7 @@ void DispenserAddon::initializeProfile(StoredProfile &profile, const String &nam
   profile.maxPulseMs = maxPulseMs_;
   profile.armTimeoutMs = armTimeoutMs_;
   name.toCharArray(profile.name, sizeof(profile.name));
+  profile.pinCount = pinCount_; memcpy(profile.pins, pins_, sizeof(profile.pins));
   profile.checksum = profileChecksum(profile);
 }
 
@@ -1197,17 +1267,14 @@ bool DispenserAddon::eraseAllProfiles() {
 }
 
 void DispenserAddon::applyProfile(const StoredProfile &profile) {
-  const int previousPin = outputPin_;
-  applyInactivePin(previousPin);
+  releasePins();
   outputPin_ = profile.outputPin;
   activeHigh_ = profile.activeHigh != 0;
   defaultPulseMs_ = profile.defaultPulseMs;
   maxPulseMs_ = profile.maxPulseMs;
   armTimeoutMs_ = profile.armTimeoutMs;
-  applyInactivePin(outputPin_);
-  if (previousPin != outputPin_) {
-    pinMode(previousPin, INPUT);
-  }
+  pinCount_ = profile.pinCount; memcpy(pins_, profile.pins, sizeof(pins_)); activePin_ = -1;
+  for (uint8_t i = 0; i < pinCount_; ++i) applyInactivePin(pins_[i]);
   armed_ = false;
   dispensing_ = false;
   faulted_ = false;
@@ -1295,12 +1362,18 @@ bool DispenserAddon::loadSettings() {
     preferences.getUInt("maxms", AppConfig::DISPENSER_MAX_PULSE_MS);
   const uint32_t savedArmTimeoutMs =
     preferences.getUInt("armms", AppConfig::DISPENSER_ARM_TIMEOUT_MS);
+  uint8_t pins[AppConfig::DISPENSER_MAX_OUTPUTS]{};
+  const size_t pinBytes = preferences.getBytesLength("outputs");
+  if (pinBytes && pinBytes <= sizeof(pins)) preferences.getBytes("outputs", pins, pinBytes);
+  else if (!pinBytes) pins[0] = savedPin;
+  const uint8_t count = pinBytes ? pinBytes : 1;
   preferences.end();
 
   String reason;
   if (
     valid &&
     validatePin(savedPin, reason) &&
+    pinBytes <= sizeof(pins) && pins[0] == savedPin && validatePins(pins, count, reason) &&
     validateTimings(savedDefaultPulseMs, savedMaxPulseMs, savedArmTimeoutMs, reason)
   ) {
     outputPin_ = savedPin;
@@ -1308,6 +1381,7 @@ bool DispenserAddon::loadSettings() {
     defaultPulseMs_ = savedDefaultPulseMs;
     maxPulseMs_ = savedMaxPulseMs;
     armTimeoutMs_ = savedArmTimeoutMs;
+    pinCount_ = count; memcpy(pins_, pins, sizeof(pins_));
     activeProfileSlot_ = -1;
     profileModified_ = false;
     standaloneSettingsActive_ = true;
@@ -1326,7 +1400,7 @@ bool DispenserAddon::loadSettings() {
 bool DispenserAddon::saveSettings() {
   String reason;
   if (
-    !validatePin(outputPin_, reason) ||
+    pins_[0] != outputPin_ || !validatePins(pins_, pinCount_, reason) ||
     !validateTimings(defaultPulseMs_, maxPulseMs_, armTimeoutMs_, reason)
   ) {
     return false;
@@ -1340,18 +1414,22 @@ bool DispenserAddon::saveSettings() {
   ok = preferences.putUInt("defms", defaultPulseMs_) > 0 && ok;
   ok = preferences.putUInt("maxms", maxPulseMs_) > 0 && ok;
   ok = preferences.putUInt("armms", armTimeoutMs_) > 0 && ok;
+  ok = preferences.putBytes("outputs", pins_, pinCount_) == pinCount_ && ok;
   ok = preferences.putBool("valid", true) > 0 && ok;
   preferences.end();
   if (!ok || !preferences.begin(PREFERENCES_NAMESPACE, true)) {
     return false;
   }
+  uint8_t verifiedPins[AppConfig::DISPENSER_MAX_OUTPUTS]{};
   const bool verified =
     preferences.getBool("valid", false) &&
     preferences.getInt("pin", -1) == outputPin_ &&
     preferences.getBool("activehi", !activeHigh_) == activeHigh_ &&
     preferences.getUInt("defms", 0) == defaultPulseMs_ &&
     preferences.getUInt("maxms", 0) == maxPulseMs_ &&
-    preferences.getUInt("armms", 0) == armTimeoutMs_;
+    preferences.getUInt("armms", 0) == armTimeoutMs_ &&
+    preferences.getBytesLength("outputs") == pinCount_ &&
+    preferences.getBytes("outputs", verifiedPins, sizeof(verifiedPins)) == pinCount_ && memcmp(verifiedPins, pins_, pinCount_) == 0;
   preferences.end();
   if (!verified || !persistActiveProfile(-1)) {
     return false;
@@ -1368,7 +1446,7 @@ bool DispenserAddon::eraseSettings() {
     return false;
   }
   static const char *const keys[] = {
-    "valid", "pin", "activehi", "defms", "maxms", "armms", ACTIVE_PROFILE_KEY
+    "valid", "pin", "activehi", "defms", "maxms", "armms", "outputs", ACTIVE_PROFILE_KEY
   };
   bool ok = true;
   for (const char *key : keys) {

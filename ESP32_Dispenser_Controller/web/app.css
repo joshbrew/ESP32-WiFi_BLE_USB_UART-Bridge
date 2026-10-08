@@ -188,6 +188,10 @@ details[open] summary { margin-bottom: 11px; }
 .status strong { display: block; margin-top: 2px; font-size: .86rem; overflow-wrap: anywhere; }
 .hint { color: var(--muted); font-size: .82rem; }
 .savedRoutines { display: grid; gap: 8px; margin-top: 12px; }
+.outputRows { display: grid; gap: 8px; }
+.outputRow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 8px; align-items: end; border: 1px solid #243d47; border-radius: 9px; padding: 10px; }
+.outputRow label { display: grid; gap: 5px; font-size: .82rem; }
+.outputRow input, .outputRow select { width: 100%; min-width: 0; }
 .savedRoutine { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid #243d47; border-radius: 9px; padding: 10px; }
 .savedRoutine small { display: block; color: var(--muted); margin-top: 3px; }
 .otaRow { margin-top: 9px; }
@@ -199,6 +203,7 @@ code { color: var(--accent); }
   .routineBuilder { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 620px) {
+  .outputRow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   header { align-items: flex-start; padding-top: 15px; }
   .live strong { display: none; }
   .consoleHead { align-items: flex-start; }

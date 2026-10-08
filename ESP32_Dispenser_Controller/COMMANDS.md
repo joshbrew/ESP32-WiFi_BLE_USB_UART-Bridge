@@ -10,6 +10,7 @@ per line. HTTP may submit an atomic batch of up to eight lines.
 Arm
 Disarm
 Dispense:<milliseconds>
+DispensePin:<gpio>,<milliseconds>
 DispenseStop
 DispenserStatus
 PayloadStatus
@@ -18,12 +19,15 @@ StopAll
 
 Rules:
 
-- `Arm` opens a temporary arming window but does not activate the output.
+- `Arm` arms all configured outputs without activating them. A nonzero arming
+  timeout creates a temporary arming window.
 - `Dispense` accepts 1 through the configured maximum pulse duration.
 - The complete pulse must fit in the remaining arm window. Send `Arm` again if
   there is not enough time left.
 - `Dispense` is rejected while another pulse is active; it cannot extend an
   activation by repeatedly resetting the stop time.
+- `Dispense` uses the first configured output. `DispensePin` uses one configured
+  GPIO; outputs never overlap. Every stop and fault releases all configured pins.
 - `DispenseStop` ends the pulse, closes the arm window, and cancels any active
   routine or coordinate sequence. It cannot allow a later repeat to restart output.
 - `Disarm` ends the pulse and closes the arm window.
@@ -52,6 +56,7 @@ separately from subsequent settings: a stop clears queued commands.
 
 ```text
 DispenserPin:<gpio>
+DispenserOutputs:<gpio>,<gpio>,...
 DispenserActiveHigh:ON
 DispenserActiveHigh:OFF
 DispenserDefaultPulse:<milliseconds>
@@ -71,6 +76,14 @@ or arm timeout may tighten, but cannot exceed, the ceilings compiled from
 profile at boot. `DispenserDefaults` restores the compiled values in RAM only.
 `DispenserErase` erases the standalone configuration and active-profile
 selection while retaining the named profile library.
+
+`DispenserOutputs` atomically replaces the output list with 1–8 unique available
+GPIOs. The first is the default for manual pulses. `DispenserPin` changes that
+first GPIO while keeping the extra outputs. Pins are saved in standalone settings
+and named payload profiles. Existing single-pin profiles load automatically.
+All outputs share the configured polarity and optional timing/arming limits.
+Use the console's Add output, Save output pins, and Use default single output
+controls to configure them without entering commands.
 
 ## Saved payload profiles
 
@@ -113,6 +126,7 @@ PayloadProfileList
 ```text
 RoutineCreate:<name>
 RoutineAdd:<name>:DISPENSE:<milliseconds>
+RoutineAdd:<name>:OUTPUT:<gpio>,<pulseMs>,<gapMs>
 RoutineAdd:<name>:START_WAIT:<milliseconds>
 RoutineAdd:<name>:WAIT:<milliseconds>
 RoutineAdd:<name>:WAIT_IDLE
@@ -131,6 +145,10 @@ RoutineErase:<name>
 Limits are configured in `AppConfig.h`. The normal build provides four routine
 slots and ten steps per routine. Repeat counts accept 1–4294967295. Routine names contain up to 15
 letters, digits, hyphens, or underscores.
+`OUTPUT:gpio,pulseMs,gapMs` is one step that pulses a configured pin, waits for it
+to turn off, then waits the gap before advancing. Eight outputs plus START_WAIT
+fit in the existing ten-step capacity. The last output's gap runs before the
+next repeat. Use RoutineShow to inspect saved pin timings.
 `RoutineRepeat:name:FOREVER` saves continuous mode: repeat the on/off cycle until
 stopped. The console's **Repeat until stopped** checkbox sets this option and
 disables the numeric repeat field. The saved library and status report repeats

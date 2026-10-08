@@ -363,18 +363,21 @@ bool CommandSelfTest::isActive() const {
 }
 
 String CommandSelfTest::statusText() const {
-  String text = "[SELFTEST] active=" + boolText(active_);
-  text += " phase=" + phaseName();
-  text += " progress=" + String(currentOrdinal()) + "/" + String(totalTestCount());
-  text += " pass=" + String(passCount_);
-  text += " fail=" + String(failCount_);
-  text += " skip=" + String(skipCount_);
-  text += " boots=" + String(bootCount_);
-  text += " runId=" + String(runId_);
+  char prefix[256];
+  snprintf(prefix, sizeof(prefix),
+    "[SELFTEST] active=%s phase=%s progress=%u/%u pass=%u fail=%u skip=%u boots=%u runId=%lu",
+    active_ ? "true" : "false", phaseName().c_str(),
+    static_cast<unsigned int>(currentOrdinal()), static_cast<unsigned int>(totalTestCount()),
+    static_cast<unsigned int>(passCount_), static_cast<unsigned int>(failCount_),
+    static_cast<unsigned int>(skipCount_), static_cast<unsigned int>(bootCount_),
+    static_cast<unsigned long>(runId_));
+  String text(prefix);
   if (currentName_.length() > 0) {
-    text += " current=" + currentName_;
+    text += " current=";
+    text += currentName_;
   }
-  text += " last=" + lastResult_;
+  text += " last=";
+  text += lastResult_;
   return text;
 }
 
@@ -401,18 +404,16 @@ String CommandSelfTest::webStateJson() const {
     compactLastResult.remove(96);
   }
 
-  String json;
-  json.reserve(224);
-  json = "{\"active\":" + TextUtil::jsonBool(active_);
-  json += ",\"phase\":\"" + TextUtil::jsonEscape(phaseName()) + "\"";
-  json += ",\"current\":" + String(currentOrdinal());
-  json += ",\"total\":" + String(totalTestCount());
-  json += ",\"pass\":" + String(passCount_);
-  json += ",\"fail\":" + String(failCount_);
-  json += ",\"skip\":" + String(skipCount_);
-  json += ",\"boots\":" + String(bootCount_);
-  json += ",\"lastResult\":\"" + TextUtil::jsonEscape(compactLastResult) + "\"";
-  json += "}";
+  char prefix[256];
+  snprintf(prefix, sizeof(prefix),
+    "{\"active\":%s,\"phase\":\"%s\",\"current\":%u,\"total\":%u,\"pass\":%u,\"fail\":%u,\"skip\":%u,\"boots\":%u,\"lastResult\":\"",
+    active_ ? "true" : "false", TextUtil::jsonEscape(phaseName()).c_str(),
+    static_cast<unsigned int>(currentOrdinal()), static_cast<unsigned int>(totalTestCount()),
+    static_cast<unsigned int>(passCount_), static_cast<unsigned int>(failCount_),
+    static_cast<unsigned int>(skipCount_), static_cast<unsigned int>(bootCount_));
+  String json(prefix);
+  json += TextUtil::jsonEscape(compactLastResult);
+  json += "\"}";
   return json;
 }
 

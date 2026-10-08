@@ -107,6 +107,18 @@ bool parseFloat(String value, float &result) {
   return true;
 }
 
+bool parseDispense(const String &command, int &pin, uint32_t &duration) {
+  pin = -1;
+  if (startsWithIgnoreCase(command, "Dispense:"))
+    return parseUnsigned32(command.substring(9), duration) && duration != 0;
+  if (!startsWithIgnoreCase(command, "DispensePin:")) return false;
+  const int comma = command.indexOf(',', 12);
+  long parsed = 0;
+  if (comma < 0 || !parseLong(command.substring(12, comma), parsed) || parsed < 0 || parsed > 39 ||
+      !parseUnsigned32(command.substring(comma + 1), duration) || !duration) return false;
+  pin = static_cast<int>(parsed); return true;
+}
+
 String boolWord(bool value) {
   return value ? "on" : "off";
 }

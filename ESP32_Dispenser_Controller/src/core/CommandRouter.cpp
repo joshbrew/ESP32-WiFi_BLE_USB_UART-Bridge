@@ -412,22 +412,33 @@ String CommandRouter::stateJson() const {
 }
 
 String CommandRouter::webStateJson() const {
+  char counters[160];
+  snprintf(counters, sizeof(counters),
+    ",\"freeHeap\":%lu,\"largestHeapBlock\":%lu,\"latestEventId\":%lu,\"bootMode\":\"%s\"",
+    static_cast<unsigned long>(ESP.getFreeHeap()), static_cast<unsigned long>(ESP.getMaxAllocHeap()),
+    static_cast<unsigned long>(events_.latestId()), productionMode_ ? "production" : "debug");
   String json;
   json.reserve(AppConfig::WEB_STATE_JSON_BUDGET_BYTES);
   json = "{\"ok\":true";
-  json += ",\"firmware\":\"" + TextUtil::jsonEscape(AppConfig::FIRMWARE_NAME) + "\"";
-  json += ",\"version\":\"" + TextUtil::jsonEscape(AppConfig::FIRMWARE_VERSION) + "\"";
-  json += ",\"freeHeap\":" + String(ESP.getFreeHeap());
-  json += ",\"largestHeapBlock\":" + String(ESP.getMaxAllocHeap());
-  json += ",\"latestEventId\":" + String(events_.latestId());
-  json += ",\"bootMode\":\"" + bootModeText() + "\"";
+  json += ",\"firmware\":\"";
+  json += TextUtil::jsonEscape(AppConfig::FIRMWARE_NAME);
+  json += "\",\"version\":\"";
+  json += TextUtil::jsonEscape(AppConfig::FIRMWARE_VERSION);
+  json += '"';
+  json += counters;
   addon_.appendStateJson(json, true);
-  json += ",\"routine\":" + routines_.stateJson(true);
-  json += ",\"geo\":" + geo_.stateJson(true);
-  json += ",\"send\":" + bridge_.stateJson();
-  json += ",\"radio\":" + radios_.webStateJson();
-  json += ",\"queue\":" + String(dispatcher_ != nullptr ? dispatcher_->webStateJson() : "{}");
-  json += ",\"selfTest\":" + String(selfTest_ != nullptr ? selfTest_->webStateJson() : "{}");
+  json += ",\"routine\":";
+  json += routines_.stateJson(true);
+  json += ",\"geo\":";
+  json += geo_.stateJson(true);
+  json += ",\"send\":";
+  json += bridge_.stateJson();
+  json += ",\"radio\":";
+  json += radios_.webStateJson();
+  json += ",\"queue\":";
+  json += dispatcher_ != nullptr ? dispatcher_->webStateJson() : "{}";
+  json += ",\"selfTest\":";
+  json += selfTest_ != nullptr ? selfTest_->webStateJson() : "{}";
   json += "}";
   return json;
 }

@@ -26,6 +26,15 @@ fragments, combined frames, maximum signed frames, noise, bad CRC, incomplete
 frame timeout, a mission without Wi-Fi, saved BLE source, refreshed initial
 delay, disconnect/stale shutdown, invalid fix, and old data after switching sources.
 
+`host/dispenser_tests.cpp` compiles the actual DispenserAddon with RoutineEngine
+and mocked GPIOs. It checks eight outputs in order, pulse/gap timing, no overlap,
+initial delay only once, continuous mode, stops during delay/pulse/gap, delayed
+command dispatch and never-started output failure, rollover, optional limits,
+invalid/duplicate/reserved pins, active-high/low behavior, released removed pins,
+standalone and named-profile persistence, and old single-pin profile migration.
+Compile it using the same command below, replacing GeoMission.cpp with
+src/addons/dispenser/DispenserAddon.cpp and engine_tests.cpp with dispenser_tests.cpp.
+
 From the repository root with a C++17 compiler:
 
 ```sh
@@ -67,6 +76,9 @@ packet fields and CRCs independently, stream phone GPS, reject cached/old phone
 measurements, cancel on Stop, and exercise the production minified BLE GPS path.
 Python checks validate acknowledged BLE chunking and stale-measurement rejection
 without requiring a Bluetooth device or installing Bleak for tests.
+The browser also checks adding/removing pin rows, per-output time and delay,
+saving pins, duplicate rejection, default single mode, and batching eight-output
+routines within the command queue limit.
 
 Firmware compilation was checked with ESP32 Arduino core 3.3.10,
 `esp32:esp32:lolin32`, `PartitionScheme=min_spiffs`, maintained Async TCP 3.5.0,

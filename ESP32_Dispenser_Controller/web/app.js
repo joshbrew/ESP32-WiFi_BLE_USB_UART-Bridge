@@ -14,7 +14,7 @@ const elements = {};
 for (const id of [
   "buildVersion", "liveDot", "liveText", "payloadState", "payloadMeta",
   "armDispenser", "disarmDispenser", "pulseDuration", "dispensePulse",
-  "stopDispense", "routineName", "routinePulse", "routineGap",
+  "stopDispense", "routineName", "routinePulse", "routineGap", "outputRows", "outputPin", "addOutput", "singleOutput", "saveOutputs",
   "routineRepeats", "routineContinuous", "routineDelay", "savedRoutines", "saveRoutine", "runRoutine", "stopRoutine", "useHourLimit",
   "wifiRole", "wifiSsid", "wifiPassword", "wifiProtocol", "wifiOpenNetwork", "saveWifi", "wifiSetupStatus",
   "geoPoints", "geoSource", "geoStatus", "saveGeo", "startGeo", "stopGeo", "geoTestPosition", "geoTestSend", "geoTestStream", "geoPhoneGps",
@@ -228,6 +228,11 @@ function updateActions() {
   }
   elements.dispensePulse.disabled = state.busy || !dispenser.armed || dispenser.faulted || dispenser.dispensing || routine.active || geo.active;
   elements.saveRoutine.disabled = state.busy || routine.active || geo.active || addon.dispenser !== true;
+  const editingOutputs = state.busy || routine.active || geo.active;
+  elements.addOutput.disabled = editingOutputs || elements.outputRows.children.length >= (dispenser.outputsCapacity || 8);
+  elements.singleOutput.disabled = editingOutputs;
+  elements.saveOutputs.disabled = editingOutputs || dispenser.armed || dispenser.dispensing || addon.dispenser !== true;
+  for (const input of elements.outputRows.querySelectorAll("input,select,button")) input.disabled = editingOutputs;
   elements.runRoutine.disabled = state.busy || addon.dispenser !== true || !dispenser.armed || dispenser.faulted || routine.active || geo.active;
   for (const button of elements.savedRoutines.querySelectorAll("button")) button.disabled = state.busy || !dispenser.armed || dispenser.faulted || routine.active || geo.active;
   elements.useHourLimit.disabled = state.busy || dispenser.armed || dispenser.dispensing || routine.active || geo.active || addon.dispenser !== true;
@@ -281,9 +286,10 @@ function renderState(data) {
   elements.payloadState.textContent = payload;
   elements.payloadState.className = `stateBadge ${dispenser.faulted ? "fault" : dispenser.dispensing ? "active" : dispenser.armed ? "armed" : "safe"}`;
   elements.payloadMeta.textContent = addon.dispenser
-    ? `GPIO${dispenser.pin} · output ${dispenser.dispensing ? "ACTIVE" : "inactive"} · max pulse ${dispenser.maxPulseMs ? `${dispenser.maxPulseMs} ms` : "unlimited"} · pulse ${dispenser.remainingMs || 0} ms remaining · arm ${dispenser.armTimeoutMs ? `${dispenser.armRemainingMs || 0} ms remaining` : "no expiry"}${dispenser.interlockConfigured ? ` · interlock ${dispenser.interlockOpen ? "open" : "CLOSED"}` : ""}`
+    ? `${(dispenser.pins || [dispenser.pin]).map(pin => `GPIO${pin}`).join(", ")} · ${dispenser.dispensing ? `GPIO${dispenser.activePin ?? dispenser.pin} ACTIVE` : "outputs inactive"} · max pulse ${dispenser.maxPulseMs ? `${dispenser.maxPulseMs} ms` : "unlimited"} · pulse ${dispenser.remainingMs || 0} ms remaining · arm ${dispenser.armTimeoutMs ? `${dispenser.armRemainingMs || 0} ms remaining` : "no expiry"}${dispenser.interlockConfigured ? ` · interlock ${dispenser.interlockOpen ? "open" : "CLOSED"}` : ""}`
     : "This build uses the optional advanced stepper/DAC hardware profile.";
-  for (const input of [elements.pulseDuration, elements.routinePulse]) {
+  initializeOutputs(dispenser);
+  for (const input of [elements.pulseDuration, ...elements.outputRows.querySelectorAll(".outputPulse")]) {
     if (dispenser.maxPulseMs) input.max = String(dispenser.maxPulseMs);
     else input.removeAttribute("max");
   }
@@ -645,18 +651,65 @@ async function saveRoutinePreset() {
   const name = routineName();
   const maxPulse = Number(state.latest?.dispenser?.maxPulseMs) || 4294967295;
   const delay = readInteger(elements.routineDelay, 0, 4294967295, "Initial delay");
-  const pulse = readInteger(elements.routinePulse, 1, maxPulse, "Pulse");
-  const gap = readInteger(elements.routineGap, 0, 4294967295, "Gap");
+  const outputs = readOutputs(maxPulse);
+  const configured = state.latest?.dispenser?.pins || [state.latest?.dispenser?.pin ?? 26];
+  if (outputs.some(row => !configured.includes(row.pin)) || outputs[0].pin !== configured[0]) throw new Error("Disarm and Save output pins before building this routine");
   const repeats = elements.routineContinuous.checked ? "FOREVER" : readInteger(elements.routineRepeats, 1, 4294967295, "Repeats");
-  await runCommand([
+  const commands = [
     `RoutineCreate:${name}`,
     `RoutineAdd:${name}:START_WAIT:${delay}`,
-    `RoutineAdd:${name}:DISPENSE:${pulse}`,
-    `RoutineAdd:${name}:WAIT_IDLE`,
-    `RoutineAdd:${name}:WAIT:${gap}`,
+    ...(outputs.length === 1 ? [
+      `RoutineAdd:${name}:DISPENSE:${outputs[0].pulse}`, `RoutineAdd:${name}:WAIT_IDLE`, `RoutineAdd:${name}:WAIT:${outputs[0].gap}`
+    ] : outputs.map(row => `RoutineAdd:${name}:OUTPUT:${row.pin},${row.pulse},${row.gap}`)),
     `RoutineRepeat:${name}:${repeats}`,
     `RoutineSave:${name}`
-  ].join("\n"));
+  ];
+  await commandBatches(commands);
+}
+const DEFAULT_OUTPUT_PINS = [13,14,16,17,18,19,21,22,23,25,26,27,32,33];
+function pinChoices(select, pin) {
+  select.replaceChildren();
+  for (const value of state.latest?.dispenser?.availablePins || DEFAULT_OUTPUT_PINS) {
+    const option = document.createElement("option"); option.value = value; option.textContent = `GPIO${value}`; select.append(option);
+  }
+  select.value = String(pin);
+}
+function addOutputRow(pin) {
+  if (elements.outputRows.children.length >= (state.latest?.dispenser?.outputsCapacity || 8)) throw new Error("Output capacity reached");
+  const row = document.createElement("div"); row.className = "outputRow";
+  row.innerHTML = '<label>Output pin<select class="outputPin"></select></label><label>Dispense ms<input class="outputPulse" type="number" min="1" value="200"></label><label>Delay after ms<input class="outputGap" type="number" min="0" value="800"></label><button class="danger">Remove</button>';
+  pinChoices(row.querySelector("select"), pin);
+  row.querySelector("button").addEventListener("click", () => { row.remove(); elements.outputRows.dataset.edited = "true"; updateActions(); });
+  elements.outputRows.append(row);
+}
+function initializeOutputs(dispenser) {
+  if (!dispenser || !state.latest?.addon?.dispenser || elements.outputRows.dataset.initialized || elements.outputRows.dataset.edited) return;
+  const pins = dispenser.pins || [dispenser.pin ?? 26];
+  pinChoices(elements.outputPin, pins[0]);
+  for (const pin of pins.slice(1)) addOutputRow(pin);
+  elements.outputRows.dataset.initialized = "true";
+}
+function readOutputs(maxPulse = Number(state.latest?.dispenser?.maxPulseMs) || 4294967295) {
+  const rows = [...elements.outputRows.children].map(row => ({
+    pin: readInteger(row.querySelector("select"), 0, 39, "Output pin"),
+    pulse: readInteger(row.querySelector(".outputPulse"), 1, maxPulse, "Dispense time"),
+    gap: readInteger(row.querySelector(".outputGap"), 0, 4294967295, "Delay after")
+  }));
+  const available = state.latest?.dispenser?.availablePins || DEFAULT_OUTPUT_PINS;
+  if (rows.some(row => !available.includes(row.pin)) || new Set(rows.map(row => row.pin)).size !== rows.length) throw new Error("Choose a different available pin for each output");
+  return rows;
+}
+async function commandBatches(commands) {
+  const generation = state.commandGeneration;
+  for (let i = 0; i < commands.length; i += 7) {
+    if (generation !== state.commandGeneration) throw new Error("Save cancelled by stop");
+    await runCommand(commands.slice(i, i + 7).join("\n"));
+    if (i + 7 < commands.length) await sleep(250);
+  }
+}
+async function saveOutputPins() {
+  const rows = readOutputs();
+  await runCommand(`DispenserOutputs:${rows.map(row => row.pin).join(",")}\nDispenserSave`);
 }
 async function runNamedRoutine() {
   await runCommand(`RoutineRun:${routineName()}`);
@@ -672,12 +725,12 @@ function renderSavedRoutines(library) {
   if (elements.savedRoutines.dataset.signature === signature) return;
   elements.savedRoutines.dataset.signature = signature;
   elements.savedRoutines.replaceChildren();
-  for (const [name, delay, pulse, gap, repeats, saved, steps] of library) {
+  for (const [name, delay, pulse, gap, repeats, saved, steps, outputs] of library) {
     const row = document.createElement("div"); row.className = "savedRoutine";
     const label = document.createElement("div"); label.textContent = `${name}${saved ? "" : " (unsaved)"}`;
     const details = document.createElement("small");
     const repetition = repeats ? `${repeats} repeats` : "until stopped";
-    details.textContent = pulse ? `Delay ${delay} ms · on ${pulse} ms / off ${gap} ms · ${repetition}` : `${steps} steps · ${repetition}`;
+    details.textContent = outputs ? `${outputs} outputs in order · initial delay ${delay} ms · ${repetition}` : pulse ? `Delay ${delay} ms · on ${pulse} ms / off ${gap} ms · ${repetition}` : `${steps} steps · ${repetition}`;
     label.append(details); row.append(label);
     if (saved) {
       const button = document.createElement("button"); button.textContent = `Run ${name}`; button.className = "primary";
@@ -810,6 +863,19 @@ elements.sendCommands.addEventListener("click", sendInput);
 elements.stopAll.addEventListener("click", () => runCommand("StopAll", true).catch(error => log(error.message, "error")));
 elements.dispensePulse.addEventListener("click", () => withLock(customDispense));
 elements.saveRoutine.addEventListener("click", () => withLock(saveRoutinePreset));
+elements.outputRows.addEventListener("input", () => { elements.outputRows.dataset.edited = "true"; });
+elements.addOutput.addEventListener("click", () => {
+  const used = [...elements.outputRows.querySelectorAll("select")].map(select => Number(select.value));
+  const pin = (state.latest?.dispenser?.availablePins || DEFAULT_OUTPUT_PINS).find(value => !used.includes(value));
+  if (pin === undefined) { log("No unused output pins available", "error"); return; }
+  addOutputRow(pin); elements.outputRows.dataset.edited = "true"; updateActions();
+});
+elements.singleOutput.addEventListener("click", () => {
+  for (const row of [...elements.outputRows.children].slice(1)) row.remove();
+  pinChoices(elements.outputPin, state.latest?.dispenser?.defaultPin ?? 26);
+  elements.outputRows.dataset.edited = "true"; updateActions();
+});
+elements.saveOutputs.addEventListener("click", () => withLock(saveOutputPins));
 elements.routineContinuous.addEventListener("change", () => { elements.routineRepeats.disabled = elements.routineContinuous.checked; });
 elements.runRoutine.addEventListener("click", () => withLock(runNamedRoutine));
 elements.useHourLimit.addEventListener("click", () => withLock(async () => {

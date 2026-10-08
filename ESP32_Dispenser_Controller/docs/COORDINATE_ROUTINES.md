@@ -27,6 +27,59 @@ these settings in that profile. Nonzero limits are still available if desired.
 Existing saved routines retain their names, steps, and repeat counts after
 updating firmware. Stop, interlocks, and stale-position shutdown remain active.
 
+## Multiple analog-switch outputs
+
+The routine builder starts with the default single GPIO. **Add output** adds a
+row with an editable GPIO, **Dispense ms**, and **Delay after ms**. Up to eight
+different available GPIOs can be configured. **Use default single output** removes
+extra rows and selects the firmware's default GPIO again.
+
+1. Disarm, choose the pins, and press **Save output pins**. Pins survive reboot
+   and are included in named payload profiles. Pin changes take effect when saved
+   to the controller; removing an editor row alone does not change the hardware.
+2. Set each row's dispense time and the delay after its pulse, then choose the
+   routine name, one-time initial delay, and repetitions or repeat-until-stopped.
+3. Press **Build + save**, Arm, and use the named **Run** button. Timing is saved
+   in that routine. Pin configuration and routine timing are separate saves.
+
+Outputs run one at a time, in displayed order. A row activates its GPIO for its
+dispense time, turns it off, then waits for its delay before the next row. The
+last row's delay also runs before repeating. Initial delay runs only once before
+the first row. A coordinate point can run the same saved multi-output routine.
+Every stop, Disarm, interlock fault, position-loss stop, and OTA shutdown releases
+all configured outputs. Manual pulse controls and legacy `Dispense:ms` use the
+first output. All outputs share the payload profile's active-high/low polarity,
+optional pulse limit, and optional arming expiry.
+
+Only available safe GPIOs are offered. Duplicate pins, flash/input-only pins,
+and GPIOs reserved for enabled status indicators, the interlock, or auxiliary
+UART are rejected. Disarm before changing pins or profiles. Each analog-switch
+control circuit needs an inactive hardware bias during reset/unpowered operation.
+
+Command example (while disarmed):
+
+```text
+DispenserOutputs:26,27,25
+DispenserSave
+RoutineCreate:three
+RoutineAdd:three:START_WAIT:1000
+RoutineAdd:three:OUTPUT:26,200,500
+RoutineAdd:three:OUTPUT:27,300,700
+RoutineAdd:three:OUTPUT:25,400,800
+RoutineRepeat:three:FOREVER
+RoutineSave:three
+Arm
+RoutineRun:three
+```
+
+`OUTPUT:pin,pulseMs,gapMs` stores the pulse and its gap in one routine step;
+no extra WAIT_IDLE is needed. A direct timed command is `DispensePin:27,300`.
+Stop with `RoutineStop` or `StopAll`. The pin list is validated before changing
+any GPIO, and all routine pins and timings are checked before a run. If a saved
+routine references a removed pin, it cannot start. Existing settings, version-1
+single-pin payload profiles, and saved single-output routines remain compatible.
+Saving an old payload profile again writes the expanded format.
+
 ## Join a controller or drone hotspot
 
 Under Network settings, select **AP + client** for an initial setup with a local

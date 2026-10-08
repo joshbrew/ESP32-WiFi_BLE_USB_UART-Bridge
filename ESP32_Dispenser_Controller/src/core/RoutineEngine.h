@@ -44,7 +44,8 @@ class RoutineEngine {
     WAIT = 1,
     COMMAND = 2,
     WAIT_IDLE = 3,
-    START_WAIT = 4
+    START_WAIT = 4,
+    PIN_OUTPUT = 5 // One pin's pulse, followed by its gap; one stored step.
   };
 
   struct StoredStep {
@@ -109,6 +110,7 @@ class RoutineEngine {
   uint8_t stepIndex_;
   uint32_t repeatIndex_;
   bool waiting_;
+  uint8_t outputPhase_ = 0;
   uint32_t runStartedAtMs_;
   uint32_t waitStartedAtMs_;
   uint32_t waitUntilMs_;

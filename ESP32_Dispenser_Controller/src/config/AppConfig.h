@@ -220,6 +220,7 @@ constexpr uint32_t DISPENSER_ARM_TIMEOUT_MS = DRONE_CFG_DISPENSER_ARM_TIMEOUT_MS
 // Their per-profile limits may be lower, never higher, than the ceilings above.
 constexpr uint8_t DISPENSER_PROFILE_MAX_COUNT = 4;
 constexpr uint8_t DISPENSER_PROFILE_NAME_BYTES = 15;
+constexpr uint8_t DISPENSER_MAX_OUTPUTS = 8;
 // Set to a valid input GPIO to require an external flight-controller or
 // physical enable signal. -1 compiles the optional interlock out.
 constexpr int PIN_DISPENSER_INTERLOCK = DRONE_CFG_INTERLOCK_PIN;
@@ -281,7 +282,7 @@ constexpr uint32_t BLE_IDLE_COMMAND_SUBMIT_MS = 140;
 constexpr uint32_t BLE_TX_MIN_FREE_HEAP_BYTES = 10500;
 constexpr uint32_t BLE_TX_MIN_LARGEST_BLOCK_BYTES = 5000;
 constexpr uint32_t BLE_TX_PRESSURE_WARNING_INTERVAL_MS = 5000;
-constexpr size_t BLE_DIRECT_OUTPUT_BUFFER_BYTES = 2304;
+constexpr size_t BLE_DIRECT_OUTPUT_BUFFER_BYTES = 2816;
 // BluetoothSerial.begin() returns before the asynchronous SPP init callback has
 // necessarily completed. Do not call GAP or BLE APIs until isReady() succeeds.
 constexpr uint32_t BLUETOOTH_READY_TIMEOUT_MS = 5000;
@@ -321,7 +322,7 @@ constexpr size_t EVENT_TEXT_BYTES = 192;
 constexpr uint8_t WEB_EVENT_DEFAULT_LIMIT = 4;
 constexpr uint8_t WEB_EVENT_MAX_LIMIT = 6;
 constexpr uint32_t WEB_STATE_CACHE_INTERVAL_MS = 800;
-constexpr size_t WEB_STATE_JSON_BUDGET_BYTES = 2048;
+constexpr size_t WEB_STATE_JSON_BUDGET_BYTES = 2560;
 constexpr size_t WEB_EVENT_JSON_BUDGET_BYTES = 768;
 // Embedded portal responses are paced from PROGMEM so Wi-Fi/BLE coexistence
 // never retains an entire TCP window of page data.

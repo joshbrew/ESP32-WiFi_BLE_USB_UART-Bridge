@@ -382,7 +382,21 @@ void RoutineEngine::service() {
     return;
   }
 
-  if (type == StepType::COMMAND) {
+  if (type == StepType::PIN_OUTPUT && waiting_) {
+    const bool busy = addon_.isBusy() || addon_.hasActiveOutput();
+    if (outputPhase_ == 0) {
+      if (busy) outputPhase_ = 1;
+      else if (now - waitStartedAtMs_ > 1000) finish(false, "output command did not start");
+      return;
+    }
+    if (outputPhase_ == 1) {
+      if (busy) return;
+      outputPhase_ = 2; waitStartedAtMs_ = now;
+    }
+    if (now - waitStartedAtMs_ < step.value) return;
+    waiting_ = false; stepIndex_++; return;
+  }
+  if (type == StepType::COMMAND || type == StepType::PIN_OUTPUT) {
     if (submitter_ == nullptr || submitContext_ == nullptr) {
       finish(false, "command dispatcher unavailable");
       return;
@@ -398,7 +412,10 @@ void RoutineEngine::service() {
       runRequestId_,
       "[ROUTINE] step=" + String(stepIndex_ + 1) + " command=" + step.command
     );
-    stepIndex_++;
+    if (type == StepType::PIN_OUTPUT) {
+      waiting_ = true; waitStartedAtMs_ = now;
+      outputPhase_ = addon_.isBusy() || addon_.hasActiveOutput() ? 1 : 0;
+    } else stepIndex_++;
     return;
   }
 
@@ -470,20 +487,21 @@ String RoutineEngine::stateJson(bool compact) const {
     static_cast<unsigned>(active_ ? routines_[activeSlot_].repeatCount : 0), static_cast<unsigned long>(delayRemaining));
   String json(fields);
   // Compact arrays keep all four saved buttons within the bounded state budget.
-  // [name, startDelayMs, pulseMs, gapMs, repeats, saved, stepCount]
+  // [name, startDelayMs, pulseMs, gapMs, repeats, saved, stepCount, outputCount]
   json += ",\"library\":[";
   bool first = true;
   for (uint8_t slot = 0; slot < AppConfig::ROUTINE_MAX_COUNT; ++slot) {
     const StoredRoutine &routine = routines_[slot];
     if (!routine.used) continue;
     uint32_t delayMs = 0, pulseMs = 0, gapMs = 0;
-    uint8_t pulseCount = 0, waitCount = 0;
+    uint8_t pulseCount = 0, waitCount = 0, outputs = 0;
     bool simple = true;
     for (uint8_t i = 0; i < routine.count; ++i) {
       const StoredStep &step = routine.steps[i];
       if (static_cast<StepType>(step.type) == StepType::START_WAIT) delayMs = step.value;
       if (static_cast<StepType>(step.type) == StepType::WAIT) { gapMs = step.value; ++waitCount; }
       const String command(step.command);
+      if (static_cast<StepType>(step.type) == StepType::PIN_OUTPUT) { ++outputs; simple = false; }
       if (static_cast<StepType>(step.type) == StepType::COMMAND) {
         if (TextUtil::startsWithIgnoreCase(command, "Dispense:")) {
           TextUtil::parseUnsigned32(command.substring(9), pulseMs); ++pulseCount;
@@ -495,9 +513,9 @@ String RoutineEngine::stateJson(bool compact) const {
     first = false;
     // Names were validated on create/load; quotes and escapes are disallowed.
     char entry[128];
-    snprintf(entry, sizeof(entry), "[\"%s\",%lu,%lu,%lu,%u,%s,%u]", routine.name,
+    snprintf(entry, sizeof(entry), "[\"%s\",%lu,%lu,%lu,%u,%s,%u,%u]", routine.name,
       static_cast<unsigned long>(delayMs), static_cast<unsigned long>(pulseMs), static_cast<unsigned long>(gapMs),
-      static_cast<unsigned>(routine.repeatCount), saved_[slot] ? "true" : "false", static_cast<unsigned>(routine.count));
+      static_cast<unsigned>(routine.repeatCount), saved_[slot] ? "true" : "false", static_cast<unsigned>(routine.count), static_cast<unsigned>(outputs));
     json += entry;
   }
   json += "]";
@@ -536,7 +554,7 @@ void RoutineEngine::publishHelp(CommandSource source, const String &requestId) c
     EventLevel::STATUS,
     source,
     requestId,
-    "Routines: RoutineCreate:name RoutineAdd:name:START_WAIT:ms RoutineAdd:name:DISPENSE:ms RoutineAdd:name:WAIT:ms RoutineAdd:name:WAIT_IDLE"
+    "Routines: RoutineCreate:name RoutineAdd:name:START_WAIT:ms RoutineAdd:name:DISPENSE:ms RoutineAdd:name:OUTPUT:pin,pulse,gap RoutineAdd:name:WAIT:ms RoutineAdd:name:WAIT_IDLE"
   );
   publish(
     EventLevel::STATUS,
@@ -602,7 +620,7 @@ bool RoutineEngine::validStoredRoutine(const StoredRoutine &routine) const {
     if ((type == StepType::WAIT || type == StepType::START_WAIT) && step.value > AppConfig::ROUTINE_MAX_WAIT_MS) {
       return false;
     }
-    if (type == StepType::COMMAND) {
+    if (type == StepType::COMMAND || type == StepType::PIN_OUTPUT) {
       if (step.command[AppConfig::ROUTINE_COMMAND_BYTES] != '\0') {
         return false;
       }
@@ -610,6 +628,7 @@ bool RoutineEngine::validStoredRoutine(const StoredRoutine &routine) const {
       if (!safeRoutineCommand(String(step.command), reason)) {
         return false;
       }
+      if (type == StepType::PIN_OUTPUT && !TextUtil::startsWithIgnoreCase(String(step.command), "DispensePin:")) return false;
     } else if (type != StepType::WAIT && type != StepType::WAIT_IDLE && type != StepType::START_WAIT) {
       return false;
     }
@@ -626,12 +645,10 @@ bool RoutineEngine::safeRoutineCommand(const String &command, String &reason) co
     return false;
   }
 
-  if (TextUtil::startsWithIgnoreCase(work, "Dispense:")) {
+  if (TextUtil::startsWithIgnoreCase(work, "Dispense:") || TextUtil::startsWithIgnoreCase(work, "DispensePin:")) {
     uint32_t durationMs = 0;
-    if (
-      !TextUtil::parseUnsigned32(work.substring(9), durationMs) ||
-      durationMs == 0
-    ) {
+    int pin = -1;
+    if (!TextUtil::parseDispense(work, pin, durationMs)) {
       reason = "stored dispense duration exceeds the configured safety limit";
       return false;
     }
@@ -702,7 +719,17 @@ bool RoutineEngine::addStep(StoredRoutine &routine, const String &specValue, Str
     reason = "START_WAIT must be the first step";
     return false;
   }
-  if (startWait || TextUtil::startsWithIgnoreCase(spec, "WAIT:")) {
+  if (TextUtil::startsWithIgnoreCase(spec, "OUTPUT:")) {
+    // pin,pulse,gap. Keep the existing record size and ten-step capacity.
+    const int first = spec.indexOf(',', 7);
+    const int last = first < 0 ? -1 : spec.indexOf(',', first + 1);
+    uint32_t pulse = 0; int pin = -1; String command;
+    if (last >= 0) command = "DispensePin:" + spec.substring(7, last);
+    if (last < 0 || !TextUtil::parseUnsigned32(spec.substring(last + 1), step.value) ||
+        !TextUtil::parseDispense(command, pin, pulse)) { reason = "OUTPUT needs pin,pulseMs,gapMs"; return false; }
+    step.type = static_cast<uint8_t>(StepType::PIN_OUTPUT);
+    command.toCharArray(step.command, sizeof(step.command));
+  } else if (startWait || TextUtil::startsWithIgnoreCase(spec, "WAIT:")) {
     uint32_t waitMs = 0;
     if (
       !TextUtil::parseUnsigned32(spec.substring(startWait ? 11 : 5), waitMs) ||
@@ -811,6 +838,7 @@ void RoutineEngine::showRoutine(
       case StepType::START_WAIT: description = "START_WAIT:" + String(step.value); break;
       case StepType::WAIT_IDLE: description = "WAIT_IDLE"; break;
       case StepType::COMMAND: description = "COMMAND:" + String(step.command); break;
+      case StepType::PIN_OUTPUT: description = String(step.command) + " gapMs=" + String(step.value); break;
       case StepType::EMPTY:
       default: description = "INVALID"; break;
     }
@@ -852,13 +880,15 @@ bool RoutineEngine::startRoutine(
     const StepType type = static_cast<StepType>(step.type);
     if (type == StepType::START_WAIT) onceMs += step.value;
     else if (type == StepType::WAIT) cycleMs += step.value;
-    else if (type == StepType::COMMAND) {
+    else if (type == StepType::COMMAND || type == StepType::PIN_OUTPUT) {
       const String command(step.command);
       if (!addon_.validateRoutineCommand(command, readiness)) {
         error(source, requestId, "routine start blocked: " + readiness); return false;
       }
       uint32_t pulse = 0;
-      if (TextUtil::startsWithIgnoreCase(command, "Dispense:") && TextUtil::parseUnsigned32(command.substring(9), pulse)) cycleMs += pulse;
+      int pin = -1;
+      if (TextUtil::parseDispense(command, pin, pulse)) cycleMs += pulse;
+      if (type == StepType::PIN_OUTPUT) cycleMs += step.value;
     }
   }
   const uint64_t overhead = onceMs + 1000; // Service/queue margin.

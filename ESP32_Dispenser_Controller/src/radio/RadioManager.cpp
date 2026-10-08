@@ -633,122 +633,224 @@ bool RadioManager::isSeekingConnection() const {
 String RadioManager::statusText() const {
   const bool stationConnected =
     wifiRunning_ && stationAttempted_ && WiFi.status() == WL_CONNECTED;
-  String text = "bootDesired=" + bootModeString(config_.bootMode);
-  text += " bootActive=" + bootModeString(activeBootMode_);
-  text += " rebootRequired=" + TextUtil::boolWord(bootModeNeedsReboot());
-  text += " bootTrial=" + TextUtil::boolWord(trialBootActive_);
-  text += " lastGood=" + bootModeString(lastGoodBootMode_);
-  text += " pendingProfile=" + bootModeString(pendingBootMode_);
-  text += " managedReboot=" + TextUtil::boolWord(managedRebootPending_);
-  text += " wifiCompiled=" + TextUtil::boolWord(AppConfig::ENABLE_WIFI);
-  text += " bleCompiled=" + TextUtil::boolWord(AppConfig::ENABLE_BLE);
-  text += " wifiDesired=" + TextUtil::boolWord(config_.wifiEnabled);
-  text += " wifiRuntime=" + TextUtil::boolWord(wifiRunning_);
-  text += " wifiStartAttempted=" + TextUtil::boolWord(wifiStartAttempted_);
-  text += " wifiStartSucceeded=" + TextUtil::boolWord(wifiStartSucceeded_);
-  text += " wifiState=" + runtimeState();
-  text += " wifiMode=" + roleString();
-  text += " apActive=" + TextUtil::boolWord(apActive_);
-  text += " apSSID=" + config_.apSsid;
-  text += " apPasswordSet=" + TextUtil::boolWord(config_.apPassword.length() > 0);
-  text += " apPasswordLength=" + String(config_.apPassword.length());
-  text += " apIP=" + String(apActive_ ? WiFi.softAPIP().toString() : "0.0.0.0");
-  text += " apClients=" + String(apActive_ ? WiFi.softAPgetStationNum() : 0);
-  text += " staCredentials=" + String(hasUsableStationCredentials() ? "usable" : "absent-or-placeholder");
-  text += " staAttempted=" + TextUtil::boolWord(stationAttempted_);
-  text += " staConnected=" + TextUtil::boolWord(stationConnected);
-  text += " staSSID=" + config_.staSsid;
-  text += " staPasswordSet=" + TextUtil::boolWord(config_.staPassword.length() > 0);
-  text += " staPasswordLength=" + String(config_.staPassword.length());
-  text += " staIP=" + String(stationConnected ? WiFi.localIP().toString() : "0.0.0.0");
-  text += " wifiIP=" + ipString();
-  text += " wifiTxPowerDbm=" + wifiPowerString(config_.wifiTxPowerQuarterDbm);
-  text += " wifiLRSupported=" + TextUtil::boolWord(wifiLrSupported());
-  text += " wifiLRDesired=" + TextUtil::boolWord(config_.wifiLongRange);
-  text += " wifiLRActive=" + TextUtil::boolWord(wifiLongRangeActive_);
-  text += " webServer=" + TextUtil::boolWord(webPortal_.isRunning());
-  text += " dnsServer=" + TextUtil::boolWord(dnsRunning_);
-  text += " fallbackAP=" + TextUtil::boolWord(config_.fallbackAp);
-  text += " bleDesired=" + TextUtil::boolWord(config_.bleEnabled);
-  text += " bleRuntime=" + TextUtil::boolWord(transports_.isBleRunning());
-  text += " bleConnected=" + String(transports_.isBleConnected() ? "yes" : "no");
-  text += " bleDormant=" + TextUtil::boolWord(transports_.isBleDormant());
-  text += " coexPolicy=" + String(isPersistentWifiBleProfile() ? "persistent" : (isCombinedWifiBleProfile() ? "adaptive" : "single"));
-  text += " bleWebHandoff=" + TextUtil::boolWord(bleWebHandoffArmed_);
-  text += " sppCompiled=" + TextUtil::boolWord(AppConfig::ENABLE_CLASSIC_BT_SPP);
-  text += " sppDesired=" + TextUtil::boolWord(config_.sppEnabled);
-  text += " sppRuntime=" + TextUtil::boolWord(transports_.isSppRunning());
-  text += " sppConnected=" + String(transports_.isSppConnected() ? "yes" : "no");
-  return text;
+  char fields[1536];
+  snprintf(fields, sizeof(fields),
+    "bootDesired=%s"
+    " bootActive=%s"
+    " rebootRequired=%s"
+    " bootTrial=%s"
+    " lastGood=%s"
+    " pendingProfile=%s"
+    " managedReboot=%s"
+    " wifiCompiled=%s"
+    " bleCompiled=%s"
+    " wifiDesired=%s"
+    " wifiRuntime=%s"
+    " wifiStartAttempted=%s"
+    " wifiStartSucceeded=%s"
+    " wifiState=%s"
+    " wifiMode=%s"
+    " apActive=%s"
+    " apSSID=%s"
+    " apPasswordSet=%s"
+    " apPasswordLength=%lu"
+    " apIP=%s"
+    " apClients=%lu"
+    " staCredentials=%s"
+    " staAttempted=%s"
+    " staConnected=%s"
+    " staSSID=%s"
+    " staPasswordSet=%s"
+    " staPasswordLength=%lu"
+    " staIP=%s"
+    " wifiIP=%s"
+    " wifiTxPowerDbm=%s"
+    " wifiLRSupported=%s"
+    " wifiLRDesired=%s"
+    " wifiLRActive=%s"
+    " webServer=%s"
+    " dnsServer=%s"
+    " fallbackAP=%s"
+    " bleDesired=%s"
+    " bleRuntime=%s"
+    " bleConnected=%s"
+    " bleDormant=%s"
+    " coexPolicy=%s"
+    " bleWebHandoff=%s"
+    " sppCompiled=%s"
+    " sppDesired=%s"
+    " sppRuntime=%s"
+    " sppConnected=%s",
+    (bootModeString(config_.bootMode)).c_str(),
+    (bootModeString(activeBootMode_)).c_str(),
+    (bootModeNeedsReboot()) ? "on" : "off",
+    (trialBootActive_) ? "on" : "off",
+    (bootModeString(lastGoodBootMode_)).c_str(),
+    (bootModeString(pendingBootMode_)).c_str(),
+    (managedRebootPending_) ? "on" : "off",
+    (AppConfig::ENABLE_WIFI) ? "on" : "off",
+    (AppConfig::ENABLE_BLE) ? "on" : "off",
+    (config_.wifiEnabled) ? "on" : "off",
+    (wifiRunning_) ? "on" : "off",
+    (wifiStartAttempted_) ? "on" : "off",
+    (wifiStartSucceeded_) ? "on" : "off",
+    (runtimeState()).c_str(),
+    (roleString()).c_str(),
+    (apActive_) ? "on" : "off",
+    (config_.apSsid).c_str(),
+    (config_.apPassword.length() > 0) ? "on" : "off",
+    static_cast<unsigned long>(config_.apPassword.length()),
+    (String(apActive_ ? WiFi.softAPIP().toString() : "0.0.0.0")).c_str(),
+    static_cast<unsigned long>(apActive_ ? WiFi.softAPgetStationNum() : 0),
+    (hasUsableStationCredentials() ? "usable" : "absent-or-placeholder"),
+    (stationAttempted_) ? "on" : "off",
+    (stationConnected) ? "on" : "off",
+    (config_.staSsid).c_str(),
+    (config_.staPassword.length() > 0) ? "on" : "off",
+    static_cast<unsigned long>(config_.staPassword.length()),
+    (String(stationConnected ? WiFi.localIP().toString() : "0.0.0.0")).c_str(),
+    (ipString()).c_str(),
+    (wifiPowerString(config_.wifiTxPowerQuarterDbm)).c_str(),
+    (wifiLrSupported()) ? "on" : "off",
+    (config_.wifiLongRange) ? "on" : "off",
+    (wifiLongRangeActive_) ? "on" : "off",
+    (webPortal_.isRunning()) ? "on" : "off",
+    (dnsRunning_) ? "on" : "off",
+    (config_.fallbackAp) ? "on" : "off",
+    (config_.bleEnabled) ? "on" : "off",
+    (transports_.isBleRunning()) ? "on" : "off",
+    (transports_.isBleConnected() ? "yes" : "no"),
+    (transports_.isBleDormant()) ? "on" : "off",
+    (isPersistentWifiBleProfile() ? "persistent" : (isCombinedWifiBleProfile() ? "adaptive" : "single")),
+    (bleWebHandoffArmed_) ? "on" : "off",
+    (AppConfig::ENABLE_CLASSIC_BT_SPP) ? "on" : "off",
+    (config_.sppEnabled) ? "on" : "off",
+    (transports_.isSppRunning()) ? "on" : "off",
+    (transports_.isSppConnected() ? "yes" : "no"));
+  return String(fields);
 }
 
 String RadioManager::stateJson() const {
   const bool stationConnected =
     wifiRunning_ && stationAttempted_ && WiFi.status() == WL_CONNECTED;
-  String json = "{";
-  json += "\"bootModeDesired\":\"" + bootModeString(config_.bootMode) + "\"";
-  json += ",\"bootModeActive\":\"" + bootModeString(activeBootMode_) + "\"";
-  json += ",\"bootModeRebootRequired\":" + TextUtil::jsonBool(bootModeNeedsReboot());
-  json += ",\"bootTrialActive\":" + TextUtil::jsonBool(trialBootActive_);
-  json += ",\"bootModeLastGood\":\"" + bootModeString(lastGoodBootMode_) + "\"";
-  json += ",\"bootModePending\":\"" + bootModeString(pendingBootMode_) + "\"";
-  json += ",\"managedRebootPending\":" + TextUtil::jsonBool(managedRebootPending_);
-  json += ",\"wifiCompiled\":" + TextUtil::jsonBool(AppConfig::ENABLE_WIFI);
-  json += ",\"bleCompiled\":" + TextUtil::jsonBool(AppConfig::ENABLE_BLE);
-  json += ",\"wifiDesired\":" + TextUtil::jsonBool(config_.wifiEnabled);
-  json += ",\"wifiRunning\":" + TextUtil::jsonBool(wifiRunning_);
-  json += ",\"wifiStartAttempted\":" + TextUtil::jsonBool(wifiStartAttempted_);
-  json += ",\"wifiStartSucceeded\":" + TextUtil::jsonBool(wifiStartSucceeded_);
-  json += ",\"wifiState\":\"" + TextUtil::jsonEscape(runtimeState()) + "\"";
-  json += ",\"wifiMode\":\"" + String(
+  char fields[2048];
+  snprintf(fields, sizeof(fields),
+    "{\"bootModeDesired\":\"%s\""
+    ",\"bootModeActive\":\"%s\""
+    ",\"bootModeRebootRequired\":%s"
+    ",\"bootTrialActive\":%s"
+    ",\"bootModeLastGood\":\"%s\""
+    ",\"bootModePending\":\"%s\""
+    ",\"managedRebootPending\":%s"
+    ",\"wifiCompiled\":%s"
+    ",\"bleCompiled\":%s"
+    ",\"wifiDesired\":%s"
+    ",\"wifiRunning\":%s"
+    ",\"wifiStartAttempted\":%s"
+    ",\"wifiStartSucceeded\":%s"
+    ",\"wifiState\":\"%s\""
+    ",\"wifiMode\":\"%s\""
+    ",\"wifiRuntimeMode\":\"%s\""
+    ",\"fallbackActive\":%s"
+    ",\"fallbackApEnabled\":%s"
+    ",\"ip\":\"%s\""
+    ",\"apActive\":%s"
+    ",\"apIp\":\"%s\""
+    ",\"apClients\":%lu"
+    ",\"stationAttempted\":%s"
+    ",\"stationConnected\":%s"
+    ",\"stationCredentialsUsable\":%s"
+    ",\"stationIp\":\"%s\""
+    ",\"txPowerDbm\":%s"
+    ",\"wifiLRSupported\":%s"
+    ",\"wifiLRDesired\":%s"
+    ",\"wifiLRActive\":%s"
+    ",\"webServerRunning\":%s"
+    ",\"webRequestCount\":%lu"
+    ",\"webLastRequestAtMs\":%lu"
+    ",\"freeHeap\":%lu"
+    ",\"minFreeHeap\":%lu"
+    ",\"largestFreeBlock\":%lu"
+    ",\"dnsServerRunning\":%s"
+    ",\"staSsid\":\"%s\""
+    ",\"apSsid\":\"%s\""
+    ",\"staPasswordSet\":%s"
+    ",\"apPasswordSet\":%s"
+    ",\"rssi\":%ld"
+    ",\"bleDesired\":%s"
+    ",\"bleRunning\":%s"
+    ",\"bleConnected\":%s"
+    ",\"bleDormant\":%s"
+    ",\"coexPersistent\":%s"
+    ",\"bleWebHandoffArmed\":%s"
+    ",\"bleWebHandoffRemainingMs\":%lu"
+    ",\"sppCompiled\":%s"
+    ",\"sppDesired\":%s"
+    ",\"sppRunning\":%s"
+    ",\"sppConnected\":%s"
+    ",\"userConnected\":%s}",
+    (bootModeString(config_.bootMode)).c_str(),
+    (bootModeString(activeBootMode_)).c_str(),
+    (bootModeNeedsReboot()) ? "true" : "false",
+    (trialBootActive_) ? "true" : "false",
+    (bootModeString(lastGoodBootMode_)).c_str(),
+    (bootModeString(pendingBootMode_)).c_str(),
+    (managedRebootPending_) ? "true" : "false",
+    (AppConfig::ENABLE_WIFI) ? "true" : "false",
+    (AppConfig::ENABLE_BLE) ? "true" : "false",
+    (config_.wifiEnabled) ? "true" : "false",
+    (wifiRunning_) ? "true" : "false",
+    (wifiStartAttempted_) ? "true" : "false",
+    (wifiStartSucceeded_) ? "true" : "false",
+    (TextUtil::jsonEscape(runtimeState())).c_str(),
+    (
     config_.wifiRole == WifiRole::AP_STA ? "APSTA" :
     config_.wifiRole == WifiRole::STA ? "STA" : "AP"
-  ) + "\"";
-  json += ",\"wifiRuntimeMode\":\"" + roleString() + "\"";
-  json += ",\"fallbackActive\":" + TextUtil::jsonBool(fallbackActive_);
-  json += ",\"fallbackApEnabled\":" + TextUtil::jsonBool(config_.fallbackAp);
-  json += ",\"ip\":\"" + TextUtil::jsonEscape(ipString()) + "\"";
-  json += ",\"apActive\":" + TextUtil::jsonBool(apActive_);
-  json += ",\"apIp\":\"" + TextUtil::jsonEscape(apActive_ ? WiFi.softAPIP().toString() : "0.0.0.0") + "\"";
-  json += ",\"apClients\":" + String(apActive_ ? WiFi.softAPgetStationNum() : 0);
-  json += ",\"stationAttempted\":" + TextUtil::jsonBool(stationAttempted_);
-  json += ",\"stationConnected\":" + TextUtil::jsonBool(stationConnected);
-  json += ",\"stationCredentialsUsable\":" + TextUtil::jsonBool(hasUsableStationCredentials());
-  json += ",\"stationIp\":\"" + TextUtil::jsonEscape(stationConnected ? WiFi.localIP().toString() : "0.0.0.0") + "\"";
-  json += ",\"txPowerDbm\":" + wifiPowerString(config_.wifiTxPowerQuarterDbm);
-  json += ",\"wifiLRSupported\":" + TextUtil::jsonBool(wifiLrSupported());
-  json += ",\"wifiLRDesired\":" + TextUtil::jsonBool(config_.wifiLongRange);
-  json += ",\"wifiLRActive\":" + TextUtil::jsonBool(wifiLongRangeActive_);
-  json += ",\"webServerRunning\":" + TextUtil::jsonBool(webPortal_.isRunning());
-  json += ",\"webRequestCount\":" + String(webPortal_.requestCount());
-  json += ",\"webLastRequestAtMs\":" + String(webPortal_.lastRequestAtMs());
-  json += ",\"freeHeap\":" + String(ESP.getFreeHeap());
-  json += ",\"minFreeHeap\":" + String(ESP.getMinFreeHeap());
-  json += ",\"largestFreeBlock\":" + String(ESP.getMaxAllocHeap());
-  json += ",\"dnsServerRunning\":" + TextUtil::jsonBool(dnsRunning_);
-  json += ",\"staSsid\":\"" + TextUtil::jsonEscape(config_.staSsid) + "\"";
-  json += ",\"apSsid\":\"" + TextUtil::jsonEscape(config_.apSsid) + "\"";
-  json += ",\"staPasswordSet\":" + TextUtil::jsonBool(config_.staPassword.length() > 0);
-  json += ",\"apPasswordSet\":" + TextUtil::jsonBool(config_.apPassword.length() > 0);
-  json += ",\"rssi\":" + String(stationConnected ? WiFi.RSSI() : 0);
-  json += ",\"bleDesired\":" + TextUtil::jsonBool(config_.bleEnabled);
-  json += ",\"bleRunning\":" + TextUtil::jsonBool(transports_.isBleRunning());
-  json += ",\"bleConnected\":" + TextUtil::jsonBool(transports_.isBleConnected());
-  json += ",\"bleDormant\":" + TextUtil::jsonBool(transports_.isBleDormant());
-  json += ",\"coexPersistent\":" + TextUtil::jsonBool(isPersistentWifiBleProfile());
-  json += ",\"bleWebHandoffArmed\":" + TextUtil::jsonBool(bleWebHandoffArmed_);
-  json += ",\"bleWebHandoffRemainingMs\":" + String(
+  ),
+    (roleString()).c_str(),
+    (fallbackActive_) ? "true" : "false",
+    (config_.fallbackAp) ? "true" : "false",
+    (TextUtil::jsonEscape(ipString())).c_str(),
+    (apActive_) ? "true" : "false",
+    (TextUtil::jsonEscape(apActive_ ? WiFi.softAPIP().toString() : "0.0.0.0")).c_str(),
+    static_cast<unsigned long>(apActive_ ? WiFi.softAPgetStationNum() : 0),
+    (stationAttempted_) ? "true" : "false",
+    (stationConnected) ? "true" : "false",
+    (hasUsableStationCredentials()) ? "true" : "false",
+    (TextUtil::jsonEscape(stationConnected ? WiFi.localIP().toString() : "0.0.0.0")).c_str(),
+    (wifiPowerString(config_.wifiTxPowerQuarterDbm)).c_str(),
+    (wifiLrSupported()) ? "true" : "false",
+    (config_.wifiLongRange) ? "true" : "false",
+    (wifiLongRangeActive_) ? "true" : "false",
+    (webPortal_.isRunning()) ? "true" : "false",
+    static_cast<unsigned long>(webPortal_.requestCount()),
+    static_cast<unsigned long>(webPortal_.lastRequestAtMs()),
+    static_cast<unsigned long>(ESP.getFreeHeap()),
+    static_cast<unsigned long>(ESP.getMinFreeHeap()),
+    static_cast<unsigned long>(ESP.getMaxAllocHeap()),
+    (dnsRunning_) ? "true" : "false",
+    (TextUtil::jsonEscape(config_.staSsid)).c_str(),
+    (TextUtil::jsonEscape(config_.apSsid)).c_str(),
+    (config_.staPassword.length() > 0) ? "true" : "false",
+    (config_.apPassword.length() > 0) ? "true" : "false",
+    static_cast<long>(stationConnected ? WiFi.RSSI() : 0),
+    (config_.bleEnabled) ? "true" : "false",
+    (transports_.isBleRunning()) ? "true" : "false",
+    (transports_.isBleConnected()) ? "true" : "false",
+    (transports_.isBleDormant()) ? "true" : "false",
+    (isPersistentWifiBleProfile()) ? "true" : "false",
+    (bleWebHandoffArmed_) ? "true" : "false",
+    static_cast<unsigned long>(
     bleWebHandoffArmed_ && static_cast<int32_t>(bleWebHandoffDeadlineMs_ - millis()) > 0
       ? bleWebHandoffDeadlineMs_ - millis()
       : 0
-  );
-  json += ",\"sppCompiled\":" + TextUtil::jsonBool(AppConfig::ENABLE_CLASSIC_BT_SPP);
-  json += ",\"sppDesired\":" + TextUtil::jsonBool(config_.sppEnabled);
-  json += ",\"sppRunning\":" + TextUtil::jsonBool(transports_.isSppRunning());
-  json += ",\"sppConnected\":" + TextUtil::jsonBool(transports_.isSppConnected());
-  json += ",\"userConnected\":" + TextUtil::jsonBool(hasUserConnection());
-  json += "}";
-  return json;
+  ),
+    (AppConfig::ENABLE_CLASSIC_BT_SPP) ? "true" : "false",
+    (config_.sppEnabled) ? "true" : "false",
+    (transports_.isSppRunning()) ? "true" : "false",
+    (transports_.isSppConnected()) ? "true" : "false",
+    (hasUserConnection()) ? "true" : "false");
+  return String(fields);
 }
 
 String RadioManager::webStateJson() const {

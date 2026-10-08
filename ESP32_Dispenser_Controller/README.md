@@ -160,6 +160,13 @@ Profiles do not contain `Arm`, output state, or routines.
 Routines run without blocking `loop()` or the network task. They are fixed-size,
 checksummed records in ESP32 NVS and are only written by `RoutineSave`.
 
+In the interface, use **Add output** to configure up to eight analog-switch
+GPIOs with their own dispense time and delay after each pulse. Disarm and **Save
+output pins**, then **Build + save** the named routine. Outputs run one at a time
+in row order; each repeat cycles through all rows. **Use default single output**
+returns to one GPIO. Stop turns off every output. See the
+[multiple-output instructions](docs/COORDINATE_ROUTINES.md#multiple-analog-switch-outputs).
+
 Create a six-dot pattern:
 
 ```text

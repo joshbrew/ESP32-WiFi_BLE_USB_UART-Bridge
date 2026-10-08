@@ -8,9 +8,21 @@
 #include <sstream>
 #include <iomanip>
 #include <type_traits>
+#include <map>
+#include <vector>
 using std::isfinite;
 inline uint32_t testNow = 0;
 inline uint32_t millis() { return testNow; }
+#define LOW 0
+#define HIGH 1
+#define INPUT 0
+#define OUTPUT 3
+inline std::map<int,int> testLevels,testModes;
+struct GpioWrite {uint32_t at;int pin,level;};
+inline std::vector<GpioWrite> testWrites;
+inline void digitalWrite(int pin,int level){testLevels[pin]=level;testWrites.push_back({millis(),pin,level});}
+inline void pinMode(int pin,int mode){testModes[pin]=mode;}
+inline int digitalRead(int pin){return testLevels[pin];}
 class String {
  public:
   std::string value;
@@ -24,6 +36,7 @@ class String {
   const char *c_str() const { return value.c_str(); }
   size_t length() const { return value.size(); }
   void reserve(size_t n) { value.reserve(n); }
+  void remove(unsigned start) { if (start < value.size()) value.erase(start); }
   char operator[](size_t n) const { return value[n]; }
   String substring(unsigned start, unsigned end) const { start = std::min<size_t>(start, value.size()); end = std::min<size_t>(end, value.size()); return value.substr(start, end >= start ? end - start : 0); }
   String substring(unsigned start) const { return substring(start, static_cast<unsigned>(value.size())); }

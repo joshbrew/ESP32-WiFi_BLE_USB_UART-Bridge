@@ -13,7 +13,7 @@ let heldResponse;
 const snapshot = {
   ok: true, firmware: "Dispenser test", version: "test", freeHeap: 100000,
   addon: { name: "drone-dispenser", dispenser: true, active: true },
-  dispenser: { armed: true, dispensing: false, faulted: false, maxPulseMs: 0, armTimeoutMs: 0, profile: "test" },
+  dispenser: { armed: true, dispensing: false, faulted: false, maxPulseMs: 0, armTimeoutMs: 0, profile: "test", pin: 26, defaultPin: 26, pins: [26], availablePins: [13,14,16,17,18,19,21,22,23,25,26,27,32,33], outputsCapacity: 8 },
   routine: { active: false, library: [["dots", 1000, 200, 800, 6, true, 4]] },
   geo: { active: false, saved: true, fresh: true, count: 2, next: 0, source: "API", capacity: 256 },
   radio: { bootModeActive: "WIFI", wifiCompiled: true, bleCompiled: true, wifiState: "connected", ip: "192.168.4.1" },
@@ -25,6 +25,7 @@ const server = http.createServer((request, response) => {
     request.on("data", data => body += data);
     request.on("end", () => {
       commands.push(body);
+      for (const line of body.split("\n")) if (line.startsWith("DispenserOutputs:")) snapshot.dispenser.pins = line.slice(17).split(",").map(Number);
       if (body === "RoutineRun:hold") { heldResponse = response; return; }
       response.setHeader("Content-Type", "application/json");
       response.end(JSON.stringify({ accepted: true, acceptedLines: body.split("\n").length, latestEventId: 0 }));
@@ -82,6 +83,31 @@ const server = http.createServer((request, response) => {
     await page.locator("#routineContinuous").uncheck();
     assert(await page.locator("#routineRepeats").isEnabled());
     snapshot.dispenser.armed=false;
+    await page.waitForFunction(() => !document.getElementById("saveOutputs").disabled);
+    await page.locator("#addOutput").click();await page.locator("#addOutput").click();
+    assert.equal(await page.locator(".outputRow").count(),3);
+    await page.locator(".outputPin").nth(1).selectOption("27");await page.locator(".outputPin").nth(2).selectOption("25");
+    await page.locator(".outputPulse").nth(1).fill("10");await page.locator(".outputGap").nth(1).fill("11");
+    await page.locator(".outputPulse").nth(2).fill("20");await page.locator(".outputGap").nth(2).fill("12");
+    await page.locator("#saveOutputs").click();await page.waitForFunction(() => !state.busy && state.latest.dispenser.pins.length===3);
+    assert.equal(commands.at(-1),"DispenserOutputs:26,27,25\nDispenserSave");
+    await page.locator("#routineName").fill("multi");await page.locator("#routineRepeats").fill("2");
+    await page.locator("#saveRoutine").click();await page.waitForFunction(() => !state.busy);
+    assert.match(commands.at(-1),/RoutineAdd:multi:OUTPUT:26,7200000,500000/);
+    assert.match(commands.at(-1),/RoutineAdd:multi:OUTPUT:27,10,11/);assert.match(commands.at(-1),/RoutineAdd:multi:OUTPUT:25,20,12/);
+    const beforeDuplicate=commands.length;await page.locator(".outputPin").nth(1).selectOption("26");
+    await page.locator("#saveOutputs").click();await page.waitForFunction(() => !state.busy);assert.equal(commands.length,beforeDuplicate);
+    await page.locator(".outputPin").nth(1).selectOption("27");
+    while(await page.locator(".outputRow").count()<8)await page.locator("#addOutput").click();
+    assert(await page.locator("#addOutput").isDisabled());
+    await page.locator("#saveOutputs").click();await page.waitForFunction(() => !state.busy&&state.latest.dispenser.pins.length===8);
+    const beforeLarge=commands.length;await page.locator("#saveRoutine").click();await page.waitForFunction(() => !state.busy);
+    const outputBatches=commands.slice(beforeLarge);assert.equal(outputBatches.length,2);assert(outputBatches.every(body=>body.split("\n").length<=7));
+    assert.equal(outputBatches.join("\n").split("\n").filter(line=>line.includes(":OUTPUT:")).length,8);assert.match(outputBatches.at(-1),/RoutineSave:multi$/);
+    await page.locator(".outputRow button").first().click();assert.equal(await page.locator(".outputRow").count(),7);
+    await page.locator("#singleOutput").click();assert.equal(await page.locator(".outputRow").count(),1);
+    await page.locator("#saveOutputs").click();await page.waitForFunction(() => !state.busy&&state.latest.dispenser.pins.length===1);
+    assert.equal(commands.at(-1),"DispenserOutputs:26\nDispenserSave");await page.locator("#routineName").fill("dots");
     await page.waitForFunction(() => !document.getElementById("useHourLimit").disabled);
     const beforeLimits=commands.length;
     await page.getByRole("button", { name: "Remove saved time limits", exact: true }).click();
@@ -264,6 +290,7 @@ const server = http.createServer((request, response) => {
     assert.equal(await embedded.evaluate(() => window.gpsWrites[57]),33);
     assert.deepEqual(errors, []);
     console.log("PASS Bluetooth GPS discovery/raw fragments/CRC/fields, phone GPS freshness/duplicates/stop, production Bluetooth GPS");
+    console.log("PASS editable output rows, per-output timings, pin save, duplicates, eight-output batching, remove/default single mode");
   } finally {
     if (heldResponse) heldResponse.destroy();
     await browser.close();

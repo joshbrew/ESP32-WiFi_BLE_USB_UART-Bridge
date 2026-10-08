@@ -52,10 +52,22 @@
       <div class="routineBuilder">
         <label>Name<input id="routineName" maxlength="15" value="dots" spellcheck="false"></label>
         <label>Initial delay ms<input id="routineDelay" type="number" min="0" value="0"></label>
-        <label>Pulse ms<input id="routinePulse" type="number" min="1" value="200"></label>
-        <label>Gap ms<input id="routineGap" type="number" min="0" value="800"></label>
         <label>Repeats<input id="routineRepeats" type="number" min="1" value="6"></label>
       </div>
+      <p class="hint">Outputs run one at a time in the order below. Each delay starts after that output finishes dispensing, including the last output before the next repeat.</p>
+      <div id="outputRows" class="outputRows">
+        <div class="outputRow">
+          <label>Output 1 pin<select id="outputPin" class="outputPin"></select></label>
+          <label>Dispense ms<input id="routinePulse" class="outputPulse" type="number" min="1" value="200"></label>
+          <label>Delay after ms<input id="routineGap" class="outputGap" type="number" min="0" value="800"></label>
+        </div>
+      </div>
+      <div class="inlineCommands">
+        <button id="addOutput">Add output</button>
+        <button id="singleOutput">Use default single output</button>
+        <button id="saveOutputs">Save output pins</button>
+      </div>
+      <p class="hint">Disarm to save pin changes. Build + save stores the dispense times and delays in the named routine. Manual pulse buttons use output 1. Stop controls turn off every output.</p>
       <label class="hint"><input id="routineContinuous" type="checkbox"> Repeat until stopped</label>
       <div class="inlineCommands">
         <button id="saveRoutine">Build + save</button>

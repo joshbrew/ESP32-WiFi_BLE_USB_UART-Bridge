@@ -54,15 +54,18 @@ class DispenserAddon : public DeviceAddon {
     uint32_t maxPulseMs;
     uint32_t armTimeoutMs;
     char name[AppConfig::DISPENSER_PROFILE_NAME_BYTES + 1];
+    uint8_t pinCount;
+    uint8_t pins[AppConfig::DISPENSER_MAX_OUTPUTS];
     uint32_t checksum;
   };
-  static_assert(sizeof(StoredProfile) <= 48, "Payload profile record unexpectedly grew.");
+  static_assert(sizeof(StoredProfile) <= 64, "Payload profile record unexpectedly grew.");
 
   bool startDispense(
     uint32_t durationMs,
     CommandSource source,
     const String &requestId,
-    const char *reason
+    const char *reason,
+    int pin = -1
   );
   void stopDispense(
     CommandSource source,
@@ -89,6 +92,11 @@ class DispenserAddon : public DeviceAddon {
     String &reason
   ) const;
   bool setConfiguredPin(int pin, String &reason);
+  bool validatePins(const uint8_t *pins, uint8_t count, String &reason) const;
+  bool configurePins(const String &value, String &reason);
+  void applyPins(const uint8_t *pins, uint8_t count);
+  void releasePins();
+  bool ownsPin(int pin) const;
   bool setDefaultPulse(uint32_t value, String &reason);
   bool setMaxPulse(uint32_t value, String &reason);
   bool setArmTimeout(uint32_t value, String &reason);
@@ -133,6 +141,9 @@ class DispenserAddon : public DeviceAddon {
 
   EventBus &events_;
   int outputPin_;
+  uint8_t pins_[AppConfig::DISPENSER_MAX_OUTPUTS]{};
+  uint8_t pinCount_ = 1;
+  int activePin_ = -1;
   bool activeHigh_;
   uint32_t defaultPulseMs_;
   uint32_t maxPulseMs_;

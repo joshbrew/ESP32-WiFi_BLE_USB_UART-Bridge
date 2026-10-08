@@ -252,28 +252,28 @@ bool TransportBridge::sendMask(
 String TransportBridge::statusText() const {
   String wifiReason;
   const bool wifi = destinationAvailable(CommandSource::WIFI, wifiReason);
-  return "sent=" + String(sentCount_) +
-    " rejected=" + String(rejectedCount_) +
-    " usb=ready" +
-    " wifi=" + String(wifi ? "ready" : "off") +
-    " ble=" + String(transports_.isBleOutputReady() ? "ready" : (transports_.isBleConnected() ? "connected-no-notify" : "off")) +
-    " spp=" + String(transports_.isTransportAvailable(CommandSource::SPP) ? "connected" : "off") +
-    " uart=" + String(transports_.isTransportAvailable(CommandSource::UART) ? "ready" : "off");
+  char text[160];
+  snprintf(text, sizeof(text), "sent=%lu rejected=%lu usb=ready wifi=%s ble=%s spp=%s uart=%s",
+    static_cast<unsigned long>(sentCount_), static_cast<unsigned long>(rejectedCount_),
+    wifi ? "ready" : "off",
+    transports_.isBleOutputReady() ? "ready" : (transports_.isBleConnected() ? "connected-no-notify" : "off"),
+    transports_.isTransportAvailable(CommandSource::SPP) ? "connected" : "off",
+    transports_.isTransportAvailable(CommandSource::UART) ? "ready" : "off");
+  return String(text);
 }
 
 String TransportBridge::stateJson() const {
   String wifiReason;
   const bool wifi = destinationAvailable(CommandSource::WIFI, wifiReason);
-  String json = "{\"sent\":" + String(sentCount_);
-  json += ",\"rejected\":" + String(rejectedCount_);
-  json += ",\"usb\":true";
-  json += ",\"wifi\":" + TextUtil::jsonBool(wifi);
-  json += ",\"ble\":" + TextUtil::jsonBool(transports_.isBleOutputReady());
-  json += ",\"bleConnected\":" + TextUtil::jsonBool(transports_.isBleConnected());
-  json += ",\"spp\":" + TextUtil::jsonBool(transports_.isTransportAvailable(CommandSource::SPP));
-  json += ",\"uart\":" + TextUtil::jsonBool(transports_.isTransportAvailable(CommandSource::UART));
-  json += "}";
-  return json;
+  char json[192];
+  snprintf(json, sizeof(json),
+    "{\"sent\":%lu,\"rejected\":%lu,\"usb\":true,\"wifi\":%s,\"ble\":%s,\"bleConnected\":%s,\"spp\":%s,\"uart\":%s}",
+    static_cast<unsigned long>(sentCount_), static_cast<unsigned long>(rejectedCount_),
+    wifi ? "true" : "false", transports_.isBleOutputReady() ? "true" : "false",
+    transports_.isBleConnected() ? "true" : "false",
+    transports_.isTransportAvailable(CommandSource::SPP) ? "true" : "false",
+    transports_.isTransportAvailable(CommandSource::UART) ? "true" : "false");
+  return String(json);
 }
 
 void TransportBridge::error(
