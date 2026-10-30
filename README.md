@@ -1,6 +1,6 @@
 ## ESP32 WiFi-BLE-USB-UART Bridge
 
-This repo contains two Arduino projects and a Raspberry Pi Linux port. This is a full suite so you only need to add your own sensor and controller programs on.
+This repo contains four Arduino firmware variants and a Raspberry Pi Linux port. This is a full suite so you only need to add your own sensor and controller programs on.
 
 #### [ESP32_Modular_Command_Transport_Controller/](https://github.com/joshbrew/ESP32-WiFi_BLE_USB_UART-Bridge/tree/main/ESP32_Modular_Command_Transport_Controller)
 
@@ -9,6 +9,19 @@ Is just the transport layer containing all communication methods and the unified
 #### [ESP32_Dispenser_Controller](https://github.com/joshbrew/ESP32-WiFi_BLE_USB_UART-Bridge/tree/main/ESP32_Dispenser_Controller)
 
 Contains GPIO, DAC, and Stepper commands in a configurable suite.
+
+#### [ESP32S3_Modular_Command_Transport_Controller/](ESP32S3_Modular_Command_Transport_Controller/README.md)
+
+Separate transport-only firmware for ESP32-S3-DevKitC-1-N16R8 using the
+ESP32S3 Dev Module board profile: native USB/COM serial, Wi-Fi HTTP, BLE with
+NimBLE subscription support, optional auxiliary UART, onboard RGB status,
+radio rollback, self-tests, and OTA. Its README contains the complete 16 MB
+flash / 8 MB OPI PSRAM build settings. Classic Bluetooth SPP is unavailable.
+
+#### [ESP32S3_Dispenser_Controller/](ESP32S3_Dispenser_Controller/README.md)
+
+Separate ESP32-S3 N16R8 dispenser firmware with GPIO4 control, onboard RGB
+indication, and S3 pin guardrails. See its README for setup and commands.
 
 #### [RaspberryPi_Controller/](RaspberryPi_Controller/README.md)
 
@@ -23,7 +36,7 @@ its guide for hardware setup and the remaining Pi-specific differences.
 
 #### ESP32 long-range Wi-Fi
 
-Both ESP32 projects include optional LR-only Wi-Fi (`WiFiLR:ON|OFF`, default
+The Arduino firmware variants include optional LR-only Wi-Fi (`WiFiLR:ON|OFF`, default
 OFF). See the [LR setup and Bluetooth relay guide](docs/WIFI_LR.md) for a
 phone-to-BLE-to-LR topology and a second ESP32 relay sketch.
 

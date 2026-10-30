@@ -1,0 +1,11 @@
+{
+  "name": "esp32-dispenser-console",
+  "private": true,
+  "scripts": {
+    "build:web": "node web/build_web_assets.mjs",
+    "check:web": "node web/build_web_assets.mjs --check"
+  },
+  "devDependencies": {
+    "terser": "5.51.2"
+  }
+}

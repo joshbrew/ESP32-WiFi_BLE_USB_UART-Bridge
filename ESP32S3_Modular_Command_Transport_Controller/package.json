@@ -1,0 +1,11 @@
+{
+  "name": "esp32s3-modular-controller-console",
+  "private": true,
+  "scripts": {
+    "build:web": "python tools/project_tool.py all",
+    "check:web": "python tools/project_tool.py validate"
+  },
+  "devDependencies": {
+    "terser": "5.51.2"
+  }
+}
