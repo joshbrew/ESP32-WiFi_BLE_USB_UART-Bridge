@@ -881,6 +881,10 @@ void WebPortal::handleEvents(AsyncWebServerRequest *request) {
     }
   }
 
+  // A browser may reconnect after an ESP reboot with a cursor from the
+  // previous boot. Return the new ring instead of waiting for IDs to catch up.
+  const bool resetCursor = cursor > events_.latestId();
+  if (resetCursor) cursor = 0;
   bool anyGap = false;
   bool first = true;
   uint8_t emitted = 0;
@@ -934,6 +938,7 @@ void WebPortal::handleEvents(AsyncWebServerRequest *request) {
 
   json += "],\"cursor\":" + String(cursor);
   json += ",\"gap\":" + TextUtil::jsonBool(anyGap);
+  json += ",\"reset\":" + TextUtil::jsonBool(resetCursor);
   json += ",\"more\":" + TextUtil::jsonBool(cursor < events_.latestId());
   json += "}";
   sendJson(request, 200, std::move(json));

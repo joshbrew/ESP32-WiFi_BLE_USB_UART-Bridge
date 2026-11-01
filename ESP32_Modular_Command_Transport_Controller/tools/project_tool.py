@@ -561,7 +561,7 @@ def check_placeholders() -> None:
     unfinished: list[str] = []
     unsafe: list[str] = []
     for path in ROOT.rglob("*"):
-        if not path.is_file() or path in ignored or ".pio" in path.parts:
+        if not path.is_file() or path in ignored or ".pio" in path.parts or "node_modules" in path.parts:
             continue
         if path.suffix.lower() not in {".h", ".cpp", ".ino", ".js", ".css", ".md"}:
             continue

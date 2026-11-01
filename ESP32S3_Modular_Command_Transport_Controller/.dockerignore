@@ -1,0 +1,8 @@
+**
+!relay/
+!relay/package.json
+!relay/package-lock.json
+!relay/*.mjs
+!web/
+!web/**
+

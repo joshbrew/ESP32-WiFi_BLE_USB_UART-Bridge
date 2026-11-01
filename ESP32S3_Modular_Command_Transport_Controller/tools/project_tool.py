@@ -247,7 +247,7 @@ def require_snippets(relative: str, snippets: list[str], missing: list[str]) -> 
 def check_layout() -> None:
     sketch = ROOT / "ESP32S3_Modular_Command_Transport_Controller.ino"
     required_root_files = {sketch.name, "build_opt.h", "README.md", "COMMANDS.md"}
-    allowed_root_files = set(required_root_files) | {".gitignore", "package.json", "package-lock.json"}
+    allowed_root_files = set(required_root_files) | {".gitignore", ".dockerignore", "package.json", "package-lock.json"}
     root_files = {path.name for path in ROOT.iterdir() if path.is_file()}
     missing_root_files = sorted(required_root_files - root_files)
     unexpected_root_files = sorted(root_files - allowed_root_files)

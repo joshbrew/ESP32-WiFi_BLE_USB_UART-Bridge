@@ -231,6 +231,13 @@ const server = http.createServer((request, response) => {
     assert(!(await page.locator("#geoPhoneGps").isChecked()));assert.deepEqual(await page.evaluate(() => window.clearedWatches),[42]);
     await page.evaluate(() => { window.locationCallbacks.success({...window.phoneSample,timestamp:Date.now()}); bleDisconnected(); });
     await page.waitForTimeout(100);assert.equal(await page.evaluate(() => window.gpsWrites.flat().length),180);
+    await page.evaluate(()=>{
+      state.cursor=10;
+      consumeEvents({events:[{l:"status",s:"WiFi",t:"Compact dispenser result"},{q:1,t:"Raw dispenser payload"}],cursor:12});
+      consumeEvents({events:[{l:"status",s:"WiFi",t:"Compact dispenser result"}],cursor:12});
+    });
+    assert.equal((await page.locator("#log").innerText()).split("Compact dispenser result").length-1,1);
+    assert.match(await page.locator("#log").innerText(),/Raw dispenser payload/);
     const screenshot = process.env.CONSOLE_SCREENSHOT;
     if (screenshot) await page.screenshot({ path: screenshot, fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });

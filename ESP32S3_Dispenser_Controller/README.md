@@ -1,5 +1,45 @@
 # ESP32-S3 Gel Dispenser Controller
 
+The root [controller.cmd](../controller.cmd) provides setup, COM-port discovery,
+compile and flash commands. Flash asks you to confirm its detected port before
+writing; compile installs missing tools/packages and saves reusable binaries.
+See [CLI usage](../docs/CONTROLLER_CLI.md).
+
+For repeat uploads of an already-built binary, use the root
+[Flash Firmware.cmd](../Flash%20Firmware.cmd) launcher instead of Arduino Upload.
+See [flash without recompiling](../docs/FLASHING_PRECOMPILED.md). The binary keeps
+the board settings and features selected when it was built.
+
+The compact console places command prefill and live output beside grouped preset
+buttons on desktop, with a stacked phone layout. Presets prefill the editor; use
+Send to execute. The dispenser's arm/pulse/stop controls are first in its side
+panel. Follow can be turned off to read earlier output, and non-sensitive command
+drafts survive reloads. Temporary read failures back off and reconnect; a lost
+command acknowledgement remains explicit because the command may have executed.
+
+On phones, a fixed bottom bar keeps Console, Controls and Stop all reachable
+while scrolling. Save log downloads the displayed output as a text file.
+Find a preset filters buttons by name, group or command without executing them;
+Escape clears the search. Dispensing controls stay above the preset search.
+Output tracking follows displayed messages rather than queue acknowledgements.
+Local reconnects handle a previous-boot cursor; remote reconnects recover available
+cached output and report known history gaps.
+
+On the hosted LTE console, open Connection to see the browser link, broker report
+and controller state age. Check connection reads status without resending commands.
+After a new device connection, Send waits for its current state; Stop all can still
+reach a connected controller while that state is pending. Local consoles do not
+request the relay's diagnostics endpoint.
+
+This UI iteration was checked with source/browser tests. **No firmware compilation
+was run in this iteration.**
+
+Optional MQTT/TLS cellular access is a source-stage feature, disabled by default
+with `DRONE_CFG_ENABLE_LTE=0` in `QuickConfig.h`. See [LTE wiring and provisioning](../ESP32S3_Modular_Command_Transport_Controller/docs/LTE_FIELD_ACCESS.md)
+and the [hostable field relay](../ESP32S3_Modular_Command_Transport_Controller/relay/README.md).
+The relay supports an HTTPS browser login and live updates from laptop or phone.
+A server/domain and modem bring-up are still required.
+
 ESP32 firmware for a drone-mounted caulk-gel dispenser. The normal build uses
 GPIO4 on ESP32-S3 N16R8 to control an external analog
 switch connected to the applicator trigger.

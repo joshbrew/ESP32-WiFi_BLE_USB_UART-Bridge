@@ -1,0 +1,57 @@
+services:
+  web:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      WEB_DOMAIN: ${WEB_DOMAIN:?Set WEB_DOMAIN}
+      WEB_USER: ${WEB_USER:?Set WEB_USER}
+      WEB_PASSWORD_HASH: ${WEB_PASSWORD_HASH:?Set WEB_PASSWORD_HASH}
+      INTERNAL_RELAY_KEY: ${INTERNAL_RELAY_KEY:?Set INTERNAL_RELAY_KEY}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [relay]
+    networks: [field]
+  relay:
+    build:
+      context: ..
+      dockerfile: relay/Dockerfile
+    restart: unless-stopped
+    environment:
+      PUBLIC_ORIGIN: https://${WEB_DOMAIN}
+      INTERNAL_RELAY_KEY: ${INTERNAL_RELAY_KEY}
+      MQTT_URL: mqtts://broker:8883
+      MQTT_USER: relay
+      MQTT_PASSWORD: ${RELAY_MQTT_PASSWORD:?Set RELAY_MQTT_PASSWORD}
+      MQTT_CA_FILE: /run/certs/ca.crt
+      DEVICE_ID: ${DEVICE_ID:?Set DEVICE_ID}
+    volumes:
+      - ./secrets/ca.crt:/run/certs/ca.crt:ro
+      - ${WEB_SOURCE:-../web}:/app/web:ro
+    depends_on: [broker]
+    networks: [field]
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.mjs"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  broker:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports: ["8883:8883"]
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./secrets:/mosquitto/secrets:ro
+    networks: [field]
+volumes:
+  caddy_data:
+  caddy_config:
+networks:
+  field:
+

@@ -7,17 +7,23 @@
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <header>
-    <div>
-      <span class="kicker">Aircraft payload controller</span>
-      <h1>Drone Gel Dispenser</h1>
-      <p id="buildVersion">Waiting for controller state</p>
-    </div>
-    <div class="live"><span id="liveDot"></span><strong id="liveText">Connecting</strong></div>
-  </header>
+<header>
+<div class="brand"><span class="brandMark" aria-hidden="true">ESP</span><div><span class="kicker">Aircraft payload / control</span><h1>Drone Gel Dispenser</h1><p id="buildVersion">Waiting for controller</p></div></div>
+<div class="headerTools"><a class="mobileJump" href="#presets">Presets ↓</a><div class="live" role="status"><span id="liveDot"></span><strong id="liveText">Connecting</strong></div></div>
+</header>
 
   <main>
-    <section class="panel payloadPanel">
+<div class="workspace"><section id="commandConsole" class="panel console" aria-label="Command console">
+<div class="consoleHead"><div><span class="kicker">Live terminal</span><h2>Command console</h2></div><div class="bleControls"><button id="connectBle">Connect BLE</button><button id="disconnectBle" disabled>Disconnect</button></div></div>
+<div class="transportLine"><span id="transportSummary">Wi-Fi transport</span><span id="compiledSummary">Reading capabilities…</span></div>
+<div class="composer">
+<label class="fieldLabel" for="commandPreset">Command prefill</label><select id="commandPreset"><option value="">Choose a command or type below</option></select>
+<label class="fieldLabel" for="commandInput">Command or batch <span>Ctrl + Enter to send</span></label><textarea id="commandInput" rows="2" spellcheck="false" placeholder="Status&#10;SendBLE:hello" autocomplete="off"></textarea>
+<div class="consoleActions"><button id="sendCommands" class="primary">Send command <span aria-hidden="true">↵</span></button><button id="stopAll" class="danger">Stop all</button><span class="hint">One command per line</span></div>
+</div>
+<div class="logToolbar"><span class="kicker">Output <span id="logCount">0 lines</span></span><div><label class="follow"><input id="followLog" type="checkbox" checked> Follow</label><button id="saveLog" class="quiet" title="Download displayed output as a text file">Save log</button><button id="clearLog" class="quiet">Clear</button></div></div>
+<pre id="log" role="log" aria-live="polite" aria-label="Controller output"></pre>
+</section><aside id="presets" class="panel presets controlSide" aria-label="Dispenser controls and presets">    <section class="panel payloadPanel">
       <div class="payloadHeading">
         <div>
           <span class="kicker">Primary flight hardware</span>
@@ -41,7 +47,8 @@
       </div>
       <button id="useHourLimit">Remove saved time limits</button>
       <p class="safetyNote">Arming never activates the output. Every dispense command has a hard time limit, and STOP ALL cancels the output and disarms the controller.</p>
-    </section>
+    </section><div class="presetHead"><span class="kicker">Quick access</span><h2>Command presets</h2><p class="hint">Choose to prefill. Review, then send.</p></div><div class="presetSearch"><label class="fieldLabel" for="presetSearch">Find a preset</label><input id="presetSearch" type="search" placeholder="Name or command…" autocomplete="off" spellcheck="false"><span id="presetCount" class="hint" role="status"></span><p id="presetEmpty" class="hint" hidden>No matching presets. Try a command name such as Status.</p></div><div id="presetGroups"></div></aside></div>
+
 
     <section class="panel routinePanel">
       <div>
@@ -118,39 +125,7 @@
       <p class="hint">This uses the phone's location. For flight use, the position must come from the aircraft. Requires a browser with Bluetooth and location support, location permission, and fresh updates within 3 seconds.</p>
     </details>
 
-    <section class="panel console">
-      <div class="consoleHead">
-        <div>
-          <span class="kicker">USB, Wi-Fi, BLE, and SPP</span>
-          <h2>Advanced command console</h2>
-        </div>
-        <div class="bleControls">
-          <button id="connectBle">Connect BLE</button>
-          <button id="disconnectBle" disabled>Disconnect</button>
-        </div>
-      </div>
 
-      <div class="transportLine">
-        <span id="transportSummary">HTTP transport</span>
-        <span id="compiledSummary">Build flags pending</span>
-      </div>
-
-      <label class="fieldLabel" for="commandPreset">Command examples</label>
-      <select id="commandPreset">
-        <option value="">Choose a command or type below</option>
-      </select>
-
-      <label class="fieldLabel" for="commandInput">Command or batch</label>
-      <textarea id="commandInput" rows="2" spellcheck="false" placeholder="Status&#10;DispenserStatus"></textarea>
-
-      <div class="consoleActions">
-        <button id="sendCommands" class="primary">Send</button>
-        <button id="stopAll" class="danger">STOP ALL</button>
-        <button id="clearLog">Clear output</button>
-      </div>
-
-      <pre id="log" aria-live="polite"></pre>
-    </section>
 
     <details class="panel statusPanel">
       <summary><span>Live status</span><small id="statusSummary">Waiting for state</small></summary>

@@ -1,0 +1,13 @@
+{$WEB_DOMAIN} {
+  basic_auth {
+    {$WEB_USER} {$WEB_PASSWORD_HASH}
+  }
+  header {
+    Strict-Transport-Security "max-age=31536000"
+    Referrer-Policy "same-origin"
+  }
+  reverse_proxy relay:8080 {
+    header_up X-Relay-Key {$INTERNAL_RELAY_KEY}
+  }
+}
+

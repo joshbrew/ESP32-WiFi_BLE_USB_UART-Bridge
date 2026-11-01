@@ -21,7 +21,7 @@ for (const id of [
   "routineSummary", "connectBle", "disconnectBle", "transportSummary",
   "compiledSummary", "commandPreset", "commandInput", "sendCommands",
   "stopAll", "clearLog", "log", "statusSummary", "statusGrid",
-  "selfTestSummary", "otaFile", "otaUpload", "otaProgress", "otaMessage"
+  "selfTestSummary", "otaFile", "otaUpload", "otaProgress", "otaMessage", "presetGroups", "followLog", "logCount"
 ]) {
   elements[id] = document.getElementById(id);
 }
@@ -48,6 +48,7 @@ const state = {
   retryAt: 0,
   httpFailures: 0,
   httpTail: Promise.resolve(),
+  pollAbort:null,offlineLogged:false,lastHttpError:"",logLines:0,
   bleWriteTail: Promise.resolve(),
   commandGeneration: 0
 };
@@ -115,9 +116,12 @@ function api(path) { return API_BASE + path; }
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 function now() { return new Date().toLocaleTimeString(); }
 function usingBle() { return state.transport === "ble" && state.bleRx && state.bleTx; }
-function setLive(ok, text) {
-  elements.liveDot.classList.toggle("on", ok);
-  elements.liveText.textContent = text;
+function setLive(ok,text,kind="") {
+  elements.liveDot.classList.toggle("on",ok);
+  elements.liveDot.classList.toggle("retrying",kind==="retrying");
+  elements.liveDot.classList.toggle("offline",!ok&&kind!=="retrying");
+  elements.liveText.textContent=text;
+  elements.liveText.title=state.lastHttpError||text;
 }
 function redact(line) {
   return /^(WiFi(?:Ap|Sta)Password:)/i.test(line)
@@ -125,11 +129,12 @@ function redact(line) {
     : line;
 }
 function appendLog(line) {
-  elements.log.textContent += line + "\n";
-  if (elements.log.textContent.length > 32000) {
-    elements.log.textContent = elements.log.textContent.slice(-24000);
-  }
-  elements.log.scrollTop = elements.log.scrollHeight;
+  const nearBottom=elements.log.scrollHeight-elements.log.scrollTop-elements.log.clientHeight<40;
+  elements.log.textContent+=line+"\n";
+  if(elements.log.textContent.length>32000)elements.log.textContent=elements.log.textContent.slice(-24000);
+  state.logLines=elements.log.textContent.split("\n").length-1;
+  elements.logCount.textContent=`${state.logLines} lines`;
+  if(elements.followLog.checked&&nearBottom)elements.log.scrollTop=elements.log.scrollHeight;
 }
 function log(message, level = "info") {
   appendLog(`[${now()}] ${level.toUpperCase()} ${message}`);
@@ -139,41 +144,77 @@ function rid() {
   return `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-async function fetchTimed(url, options = {}, ms = 4200) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
+async function fetchTimed(url,options={},ms=4200,background=false) {
+  const controller=new AbortController();
+  let timedOut=false;
+  if(background)state.pollAbort=controller;
+  const timer=setTimeout(()=>{timedOut=true;controller.abort()},ms);
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    const response=await fetch(url,{...options,signal:controller.signal});
+    // A fetch resolves at headers. Keep the deadline through body consumption.
+    const body=await response.text();
+    return {ok:response.ok,status:response.status,headers:response.headers,text:async()=>body};
+  } catch(error) {
+    if(timedOut){const timeout=new Error("Controller response timed out");timeout.name="TimeoutError";throw timeout}
+    throw error;
   } finally {
     clearTimeout(timer);
+    if(state.pollAbort===controller)state.pollAbort=null;
   }
 }
 
-async function readJson(response, label) {
-  const body = await response.text();
-  if (!response.ok) {
-    throw new Error(`${label} HTTP ${response.status}${body ? `: ${body.slice(0, 100)}` : ""}`);
+async function readJson(response,label) {
+  const text=await response.text();
+  let payload;
+  try {payload=JSON.parse(text)} catch(error) {
+    if(response.ok)throw new Error(`${label}: incomplete or invalid response`);
   }
-  try {
-    return JSON.parse(body);
-  } catch (error) {
-    throw new Error(`${label} invalid JSON (${body.length} bytes)`);
+  if(!response.ok){
+    const error=new Error(`${label}: ${payload?.error||`HTTP ${response.status}`}`);
+    error.httpStatus=response.status;
+    error.retryable=payload?.retryable===true||[408,429,502,503,504].includes(response.status);
+    throw error;
   }
+  return payload;
 }
 
 function down(error) {
-  const message = error?.name === "AbortError" ? "HTTP timeout" : error?.message || String(error);
-  const wasLive = elements.liveDot.classList.contains("on");
-  setLive(false, message);
-  if (wasLive) log(message, "error");
+  state.lastHttpError=error?.message||String(error);
+  setLive(false,"Controller offline");
+  if(!state.offlineLogged){log("Connection interrupted; reconnecting automatically.","warning");state.offlineLogged=true}
 }
 
 async function pingHttp() {
-  const response = await fetchTimed(api("/api/ping"), { cache: "no-store" }, 2200);
-  await readJson(response, "Ping");
-  state.lastContact = Date.now();
+  return queueHttp(async()=>{
+    const response=await fetchTimed(api("/api/ping"),{cache:"no-store"},3200);
+    await readJson(response,"Ping");httpRecovered();
+  });
 }
 
+function queueHttp(work) {
+  const pending=state.httpTail.then(work,work);
+  state.httpTail=pending.catch(()=>{});
+  return pending;
+}
+function httpRecovered() {
+  state.lastContact=Date.now();state.httpFailures=0;state.retryAt=0;state.lastHttpError="";
+  if(state.offlineLogged)log("Connection restored.","status");
+  state.offlineLogged=false;
+  setLive(true,"Connected");
+}
+function escapeHtml(value){return String(value).replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]))}
+function commandCancelled(){const error=new Error("Queued command cancelled after Stop all or a connection change");error.name="CommandCancelled";return error}
+function prefill(command) {
+  elements.commandInput.value=command;
+  elements.commandPreset.value=command;
+  rememberInput();elements.commandInput.focus({preventScroll:true});
+}
+function rememberInput() {
+  const value=elements.commandInput.value.slice(0,2048);
+  // Do not persist Wi-Fi passwords in the browser's command draft.
+  try {if(/WiFi(?:Ap|Sta)Password:/i.test(value))localStorage.removeItem("dispenser-command-draft");else localStorage.setItem("dispenser-command-draft",value)} catch(error) {}
+  for(const button of elements.presetGroups.querySelectorAll("[data-fill]"))button.classList.toggle("selected",button.dataset.fill===value.trim());
+}
 function compiled(requirement) {
   const radio = state.latest?.radio || {};
   const send = state.latest?.send || {};
@@ -194,18 +235,21 @@ function compiled(requirement) {
 }
 
 function buildCommandMenu() {
-  for (const [group, items] of ACTION_GROUPS) {
-    const optgroup = document.createElement("optgroup");
-    optgroup.label = group;
-    for (const [label, command, requires, confirm] of items) {
-      const option = document.createElement("option");
-      option.value = command;
-      option.textContent = `${label} — ${command}`;
-      if (requires) option.dataset.requires = requires;
-      if (confirm) option.dataset.confirm = "1";
-      optgroup.append(option);
+  for(const [group,items] of ACTION_GROUPS){
+    const optgroup=document.createElement("optgroup");optgroup.label=group;
+    const section=document.createElement("section");section.className="presetGroup";
+    const title=document.createElement("h3");title.textContent=group;
+    const buttons=document.createElement("div");buttons.className="presetButtons";
+    for(const [label,command,requires,confirm] of items){
+      const option=document.createElement("option");option.value=command;option.textContent=label+" · "+command;
+      const button=document.createElement("button");button.dataset.fill=command;button.title=command;
+      const name=document.createElement("strong");name.textContent=label;
+      const code=document.createElement("code");code.textContent=command;
+      button.append(name,code);
+      for(const item of [option,button]){if(requires)item.dataset.requires=requires;if(confirm)item.dataset.confirm="1"}
+      optgroup.append(option);buttons.append(button);
     }
-    elements.commandPreset.append(optgroup);
+    elements.commandPreset.append(optgroup);section.append(title,buttons);elements.presetGroups.append(section);
   }
 }
 
@@ -245,6 +289,7 @@ function updateActions() {
   if (!gpsReady || (state.phoneGpsWatch !== null && geo.source !== "BLE")) stopTestGps();
   elements.saveWifi.disabled = state.busy || routine.active || geo.active;
   if (elements.commandPreset.selectedOptions[0]?.disabled) elements.commandPreset.selectedIndex = 0;
+  syncStationPresets();
 }
 
 function renderTransport() {
@@ -257,14 +302,12 @@ function renderTransport() {
   updateActions();
 }
 
-function card(label, value) {
-  return `<div class="status"><span>${label}</span><strong>${value}</strong></div>`;
-}
+function card(label,value){return `<div class="status"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`}
 
 function renderState(data) {
   state.latest = data;
   state.lastContact = Date.now();
-  if (state.cursor === null) state.cursor = Number(data.latestEventId) || 0;
+  if (state.cursor === null) state.cursor = 0;
 
   const radio = data.radio || {};
   const send = data.send || {};
@@ -329,48 +372,47 @@ function renderState(data) {
   renderTransport();
 }
 
-async function postHttpNow(body, id, fast, generation) {
-  const clean = String(body || "").replace(/\r/g, "").trim();
-  if (!clean) throw new Error("Empty command");
+async function postHttpNow(body,id,fast,epoch=state.commandGeneration) {
+  const clean=String(body||"").replace(/\r/g,"").trim();if(!clean)throw new Error("Empty command");
   let last;
-  const timeout = fast ? 2200 : 6500;
-  const delays = fast ? [0] : [0, 180, 500];
-  state.httpQuietUntil = Date.now() + timeout + 300;
-  for (const delay of delays) {
-    if (delay) await sleep(delay);
-    if (generation !== state.commandGeneration && !/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm)$/i.test(clean)) throw new Error("Pending command cancelled by stop");
+  const timeout=fast?3200:6500,delays=fast?[0]:[0,400,1000];
+  const sentAt=performance.now(),relaySession=window.ESP32_REMOTE?.session,deviceSession=state.latest?.uplink?.session;
+  state.httpQuietUntil=Date.now()+timeout+300;
+  for(const delay of delays){
+    if(delay)await sleep(delay);
+    if(epoch!==state.commandGeneration)throw commandCancelled();
     try {
-      const response = await fetchTimed(api("/api/command"), {
-        method: "POST",
-        headers: { "Content-Type": "application/octet-stream", "Accept": "application/json", "X-Request-ID": id },
-        body: clean,
-        keepalive: fast
-      }, timeout);
-      const payload = await readJson(response, "Command");
-      state.lastContact = Date.now();
-      if (payload.accepted) {
-        state.cursor = Math.max(state.cursor ?? 0, Number(payload.latestEventId) || 0);
-        state.httpQuietUntil = Date.now() + 100;
-        setLive(true, "HTTP connected");
-        return payload;
+      const response=await fetchTimed(api("/api/command"),{method:"POST",headers:{"Content-Type":"application/octet-stream","Accept":"application/json","X-Request-ID":id,...(relaySession?{"X-Relay-Session":relaySession,"X-Device-Session":deviceSession||""}:{})},body:clean,keepalive:fast},timeout);
+      const payload=await readJson(response,"Command");
+      if(payload.accepted){
+        state.lastCommandMs=Math.round(performance.now()-sentAt);
+        // A queue acknowledgement is not an output cursor. Read execution events normally.
+        state.httpQuietUntil=Date.now()+200;httpRecovered();return payload;
       }
-      last = new Error(payload.error || `Command HTTP ${response.status}`);
-      if (!(response.status === 429 || response.status === 503 || payload.retryable)) break;
-    } catch (error) {
-      last = error;
+      last=new Error(payload.error||"Command was not accepted");last.httpStatus=422;
+      if(!payload.retryable)break;
+    } catch(error){
+      last=error;
+      if(error.httpStatus&&!error.retryable)break;
     }
   }
-  state.httpQuietUntil = Date.now() + 100;
-  throw last || new Error("Command failed");
+  state.httpQuietUntil=Date.now()+200;
+  if(epoch!==state.commandGeneration)throw commandCancelled();
+  if(last?.httpStatus)throw last;
+  throw new Error("Command acknowledgement unavailable. Check the output before sending it again.");
 }
 
-function postHttp(body, id = rid(), fast = false) {
-  const generation = state.commandGeneration;
-  const run = () => postHttpNow(body, id, fast, generation);
-  if (fast && /^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm)$/i.test(body.trim())) return run();
-  const pending = state.httpTail.then(run, run);
-  state.httpTail = pending.catch(() => {});
-  return pending;
+function postHttp(body,id=rid(),fast=false) {
+  state.pollAbort?.abort();
+  if(fast){
+    // Stop bypasses a slow request; older queued commands cannot run afterward.
+    // runCommand already advances the emergency-stop generation.
+    const pending=postHttpNow(body,id,true,state.commandGeneration);
+    state.httpTail=Promise.allSettled([state.httpTail,pending]);
+    return pending;
+  }
+  const epoch=state.commandGeneration;
+  return queueHttp(()=>{if(epoch!==state.commandGeneration)throw commandCancelled();return postHttpNow(body,id,false,epoch)});
 }
 
 async function writeBleNow(text, characteristic = state.bleRx) {
@@ -490,50 +532,66 @@ function coexHttpMode() {
 }
 
 function showEvent(event) {
-  const text = event.t || "";
-  if (event.q) { rawLog(text); return; }
-  const source = event.s || "Internal";
-  log(`${source}${event.r ? ` #${event.r}` : ""}: ${text}`, String(event.l || "info").toLowerCase());
+  const text=event.t||"",age=Number.isFinite(event.ageMs)&&event.ageMs>=1500?` [${Math.floor(event.ageMs/1000)}s earlier]`:"";
+  if(event.q){if(age)log(`Recovered raw output${age}`,"status");rawLog(text);return}
+  const source=event.s||"Internal",request=event.r?` #${event.r}`:"";
+  log(`${source}${request}${age}: ${text}`,String(event.l||"info").toLowerCase());
+}
+function consumeEvents(payload,recovered=false) {
+  const current=state.latest?.uplink;
+  if(window.ESP32_REMOTE&&((payload.relaySession&&payload.relaySession!==current?.relaySession)||(payload.deviceSession&&payload.deviceSession!==current?.session))){state.nextStateAt=0;return}
+  if(payload.reset)state.cursor=0;
+  const cursor=state.cursor??0;
+  // The small local HTTP response omits per-event IDs and supplies a batch
+  // cursor instead. The relay uses individual IDs for stream deduplication.
+  const batchAdvanced=!Number.isInteger(payload.cursor)||payload.cursor>cursor||payload.reset;
+  const fresh=(payload.events||[]).filter(event=>Number.isInteger(event.id)?event.id>cursor:batchAdvanced);
+  if(payload.gap||fresh.some(event=>event.gap))log("Some earlier output is no longer available; showing retained messages.","warning");
+  if(recovered&&fresh.length)log(`Recovered ${fresh.length} earlier message${fresh.length===1?"":"s"}.`,"status");
+  for(const event of fresh){showEvent(event);if(Number.isInteger(event.id))state.cursor=Math.max(state.cursor??0,event.id)}
+  if(Number.isInteger(payload.cursor))state.cursor=Math.max(state.cursor??0,payload.cursor);
+}
+function saveConsoleLog() {
+  const file=new Blob([document.getElementById("log").textContent],{type:"text/plain;charset=utf-8"});
+  const url=URL.createObjectURL(file),link=document.createElement("a");
+  link.href=url;link.download=`controller-console-${new Date().toISOString().replace(/[:.]/g,"-")}.txt`;
+  document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 
+
 async function pollHttpOnce() {
-  const time = Date.now();
-  if (state.busy || state.otaActive || time < state.httpQuietUntil) return 100;
-  if (time < state.retryAt) return Math.min(350, state.retryAt - time);
-  const getState = !state.latest || time >= state.nextStateAt;
+  const time=Date.now();
+  if(state.busy||state.otaActive||usingBle()||document.hidden||time<state.httpQuietUntil)return 300;
+  if(time<state.retryAt)return Math.min(1000,state.retryAt-time);
+  const getState=!state.latest||time>=state.nextStateAt;
   try {
-    if (getState) {
-      const response = await fetchTimed(api("/api/state"), { cache: "no-store" }, coexHttpMode() ? 4800 : 3200);
-      renderState(await readJson(response, "State"));
-      state.nextStateAt = Date.now() + 1000;
-    } else {
-      const response = await fetchTimed(api(`/api/events?since=${state.cursor ?? 0}&limit=4`), { cache: "no-store" }, coexHttpMode() ? 4200 : 2800);
-      const payload = await readJson(response, "Events");
-      state.lastContact = Date.now();
-      if (payload.gap) log("Event history wrapped", "warning");
-      for (const event of payload.events || []) showEvent(event);
-      state.cursor = Math.max(state.cursor ?? 0, Number(payload.cursor) || 0);
-      setLive(true, "HTTP connected");
-      state.httpFailures = 0;
-      state.retryAt = 0;
-      return payload.more ? 120 : 400;
+    const payload=await queueHttp(async()=>{
+      if(state.busy||state.otaActive||usingBle())return null;
+      const path=getState?"/api/state":`/api/events?since=${state.cursor??0}&limit=4`;
+      const response=await fetchTimed(api(path),{cache:"no-store"},coexHttpMode()?5200:4200,true);
+      return readJson(response,getState?"State":"Events");
+    });
+    if(!payload)return 300;
+    httpRecovered();
+    if(getState){renderState(payload);state.nextStateAt=Date.now()+1800}
+    else {
+      consumeEvents(payload);
     }
-    state.httpFailures = 0;
-    state.retryAt = 0;
-    return 300;
-  } catch (error) {
+    return payload.more?180:650;
+  } catch(error){
+    // A command/BLE/OTA transition cancels background reads intentionally.
+    if(error.name==="AbortError")return 300;
+    state.lastHttpError=error.message||String(error);
     state.httpFailures++;
-    if (state.httpFailures < 2) return 250;
-    try {
-      await pingHttp();
-      setLive(true, "HTTP connected — API retrying");
-      state.retryAt = Date.now() + (state.httpFailures < 4 ? 700 : 2200);
-      return 300;
-    } catch (pingError) {
-      down(pingError);
-      state.retryAt = Date.now() + 3000;
-      return 1000;
+    if(error.httpStatus&&!error.retryable){
+      setLive(false,error.httpStatus===401||error.httpStatus===403?"Access denied":"API unavailable");
+      if(!state.offlineLogged)log(state.lastHttpError,"error");
+      state.offlineLogged=true;state.retryAt=Date.now()+5000;return 1000;
     }
+    if(state.httpFailures>=3&&Date.now()-state.lastContact>=8000)down(error);
+    else setLive(false,"Reconnecting…","retrying");
+    state.retryAt=Date.now()+Math.min(4000,500*2**Math.min(state.httpFailures,3));
+    return 500;
   }
 }
 
@@ -556,13 +614,10 @@ async function pollLoop() {
   setTimeout(pollLoop, await pollHttpOnce());
 }
 
-async function withLock(work) {
-  if (state.busy) return;
-  state.busy = true;
-  renderTransport();
-  try { await work(); }
-  catch (error) { log(error.message || String(error), "error"); }
-  finally { state.busy = false; renderTransport(); }
+async function withLock(work){
+  if(state.busy)return;state.busy=true;state.pollAbort?.abort();renderTransport();
+  try {await work()} catch(error){log(error.message||String(error),error.name==="CommandCancelled"?"warning":"error")}
+  finally {state.busy=false;renderTransport()}
 }
 
 async function prepareHttpForOta() {
@@ -630,6 +685,7 @@ function selectedOption() {
   return option && option.value === elements.commandInput.value.trim() ? option : null;
 }
 function sendInput() {
+  rememberInput();
   const option = selectedOption();
   const command = elements.commandInput.value;
   if (option?.dataset.confirm && !window.confirm(`Send ${command}?\n\nUSB serial remains the recovery path.`)) return;
@@ -839,6 +895,8 @@ function startPhoneGps() {
 }
 
 document.addEventListener("click", event => {
+  const fill = event.target.closest("button[data-fill]");
+  if(fill){prefill(fill.dataset.fill);return}
   const button = event.target.closest("button[data-command]");
   if (!button) return;
   const command = button.dataset.command;
@@ -851,9 +909,10 @@ document.addEventListener("click", event => {
 });
 elements.commandPreset.addEventListener("change", () => {
   const option = elements.commandPreset.selectedOptions[0];
-  if (option?.value) { elements.commandInput.value = option.value; elements.commandInput.focus(); }
+  if (option?.value) { prefill(option.value); }
 });
 elements.commandInput.addEventListener("input", () => {
+  rememberInput();
   if (elements.commandPreset.value !== elements.commandInput.value.trim()) elements.commandPreset.selectedIndex = 0;
 });
 elements.commandInput.addEventListener("keydown", event => {
@@ -903,10 +962,245 @@ elements.startGeo.addEventListener("click", () => withLock(() => runCommand("Geo
 elements.stopGeo.addEventListener("click", () => runCommand("GeoStop", true).catch(error => log(error.message, "error")));
 elements.connectBle.addEventListener("click", () => withLock(connectBle));
 elements.disconnectBle.addEventListener("click", disconnectBle);
-elements.clearLog.addEventListener("click", () => { elements.log.textContent = ""; });
+elements.clearLog.addEventListener("click", () => { elements.log.textContent = ""; state.logLines=0; elements.logCount.textContent="0 lines"; });
 elements.otaUpload.addEventListener("click", () => withLock(uploadFirmware));
 
+// Enabled only by the authenticated remote host's configuration script.
+function installRemoteConsole() {
+  if(!window.ESP32_REMOTE)return;
+  let socket=null,reconnect=null,connectTimer=null,lastFrame=0,openedAt=0,stateAt=Date.now(),session=null;
+  let relaySession=window.ESP32_REMOTE.session||null;
+  const baseRender=renderState,baseTransport=renderTransport,baseRecovered=httpRecovered;
+  const basePoll=pollHttpOnce,baseCommand=runCommand;
+  const baseApi=api;
+  api=function(path){
+    if(!path.startsWith("/api/events?"))return baseApi(path);
+    const url=new URL(baseApi(path),location.href);
+    url.searchParams.set("deviceSession",state.latest?.uplink?.session||"");
+    url.searchParams.set("relaySession",window.ESP32_REMOTE.session||"");url.searchParams.set("limit","16");
+    return url.href;
+  };
+  const metrics=document.createElement("div");metrics.className="connectionMetrics";metrics.setAttribute("aria-label","Remote connection details");
+  const streamInfo=document.createElement("span"),ageInfo=document.createElement("span"),ackInfo=document.createElement("span");
+  ackInfo.title="Time to controller queue acknowledgement; execution results appear in Output.";
+  metrics.append(streamInfo,ageInfo,ackInfo);document.querySelector(".transportLine").after(metrics);
+  const connection=document.createElement("details");connection.className="connectionDetails";
+  const summary=document.createElement("summary"),summaryTitle=document.createElement("span"),summaryState=document.createElement("small");
+  summaryTitle.textContent="Connection";summary.append(summaryTitle,summaryState);
+  const connectionBody=document.createElement("div");connectionBody.className="connectionBody";
+  const connectionRows={};
+  for(const [name,label] of [["browser","This browser"],["broker","Relay to broker"],["device","Controller"]]){
+    const row=document.createElement("div"),title=document.createElement("span"),value=document.createElement("strong");
+    row.className="connectionRow";title.textContent=label;value.textContent="Waiting for connection";row.append(title,value);connectionRows[name]=value;connectionBody.append(row);
+  }
+  const connectionNote=document.createElement("p");connectionNote.className="hint";connectionNote.textContent="Checks read connection status only. Commands are never resent by this button.";
+  const checkButton=document.createElement("button");checkButton.type="button";checkButton.textContent="Check connection";
+  const checkResult=document.createElement("span");checkResult.className="hint";checkResult.setAttribute("role","status");
+  const checkActions=document.createElement("div");checkActions.className="connectionActions";checkActions.append(checkButton,checkResult);
+  connectionBody.append(connectionNote,checkActions);connection.append(summary,connectionBody);metrics.after(connection);
+  let checking=false,lastDiagnosticScope=null;
+  function connectionScope(){const link=state.latest?.uplink;return `${link?.relaySession||""}/${link?.session||""}/${link?.brokerOnline??""}/${link?.reason||""}`}
+  async function checkConnection(){
+    if(checking)return;
+    if(state.busy||state.otaActive){checkResult.textContent="Finish the current command, then check again.";return}
+    checking=true;checkButton.disabled=true;checkResult.textContent="Checking…";
+    const scope=connectionScope();
+    try{
+      const health=await queueHttp(async()=>{
+        const response=await fetchTimed(api("/api/health"),{cache:"no-store"},4200,true);
+        return readJson(response,"Connection check");
+      });
+      if(scope!==connectionScope()){checkResult.textContent="Connection changed; check again.";return}
+      if(health?.relay?.http===undefined||health?.broker?.phase===undefined)throw new Error("Incomplete connection report");
+      connectionRows.broker.textContent=String(health.broker.message||health.broker.phase).slice(0,220);
+      checkResult.textContent=health.ok===true?`Checked ${now()}.` : "Console files need attention on the host.";
+    }catch(error){
+      checkResult.textContent=error.httpStatus===401||error.httpStatus===403?"Sign-in expired or access denied. Reload to sign in again.":error.name==="AbortError"?"Check paused for a command. Try again when ready.":"Connection check unavailable. Automatic reconnect is still running.";
+      connectionRows.broker.textContent="No current broker report";
+    }finally{checking=false;checkButton.disabled=false}
+  }
+  checkButton.addEventListener("click",checkConnection);
+  connection.addEventListener("toggle",()=>{if(connection.open)checkConnection()});
+  function renderConnectionDetails({reachable,online,age,stale}){
+    const uplink=state.latest?.uplink;
+    summaryState.textContent=!reachable?"Relay unreachable":!online?"Device offline":age===null?"Waiting for state":stale?"State is old":"Connected";
+    connectionRows.browser.textContent=streamLive()?"Live stream connected":reachable?"Connected using HTTP fallback":"Relay unreachable; reconnecting automatically";
+    connectionRows.device.textContent=!online?(uplink?.reason||"Offline; waiting for the controller"):age===null?"Connected; waiting for current device state":`${uplink.stopPending?"Stop awaiting confirmation · ":""}State ${age}s old${stale?" · cached reading":""}`;
+    if(lastDiagnosticScope!==connectionScope()){
+      lastDiagnosticScope=connectionScope();connectionRows.broker.textContent=uplink?.brokerOnline===true?"Connected; open this panel to check details":uplink?.brokerOnline===false?"Relay is reconnecting to the broker":"Open this panel to check broker status";
+      if(!checking)checkResult.textContent="";
+    }
+  }
+
+  function relayAlive(){return Date.now()-Math.max(lastFrame,state.lastContact||0)<12000}
+  function priorityStop(body){return /^(StopAll|Disarm|DispenserDisarm|DispenserOff|RoutineStop|GeoStop|DispenseStop|GPIO26:OFF)$/i.test(String(body).trim())}
+  function streamLive(){return socket?.readyState===1&&lastFrame>0&&Date.now()-lastFrame<12000}
+  function connectionLabel(){
+    const uplink=state.latest?.uplink;
+    const reachable=relayAlive(),online=reachable&&uplink?.online===true;
+    const age=Number.isFinite(uplink?.ageMs)?Math.max(0,Math.floor((uplink.ageMs+Date.now()-stateAt)/1000)):null;
+    const stale=uplink?.stale||age===null||age>5;
+    setLive(online,online?(age===null?"Waiting for device state":stale?`LTE connected · state ${age}s old`:"LTE connected"):reachable?(uplink?.reason||"Device offline"):"Relay unavailable",online&&stale?"retrying":undefined);
+    elements.transportSummary.textContent="Remote LTE";
+    streamInfo.textContent=uplink?.stopPending?"Stop awaiting confirmation":streamLive()?"● Live stream":reachable?"↻ HTTP fallback":"Relay unreachable";
+    ageInfo.textContent=age===null?"Waiting for device state":`State ${age}s old`;
+    ageInfo.classList.toggle("stale",stale);
+    ackInfo.textContent=Number.isFinite(state.lastCommandMs)?`Last ack ${state.lastCommandMs} ms`:"Last ack —";
+    renderConnectionDetails({reachable,online,age,stale});
+  }
+  renderTransport=function(){
+    baseTransport();
+    elements.connectBle.disabled=elements.disconnectBle.disabled=true;
+    elements.connectBle.title="Connect to the controller's local console to use BLE";
+    elements.otaUpload.disabled=true;
+    elements.otaMessage.textContent="For firmware updates, connect locally over Wi-Fi or USB.";
+    const offline=!relayAlive()||state.latest?.uplink?.online!==true;
+    const stopping=state.latest?.uplink?.stopPending===true;
+    const waiting=!Number.isFinite(state.latest?.uplink?.ageMs);
+    elements.sendCommands.disabled=state.busy||offline||stopping||waiting;
+    for(const button of document.querySelectorAll("[data-command]"))if(offline||((stopping||waiting)&&!priorityStop(button.dataset.command)))button.disabled=true;
+    if(offline||stopping||waiting)for(const id of ["dispensePulse","runRoutine","startGeo","saveRoutine","saveOutputs","saveGeo","saveWifi","useHourLimit"]){const button=document.getElementById(id);if(button)button.disabled=true}
+    if(waiting&&document.getElementById("payloadState")){
+      elements.payloadState.textContent="UNKNOWN";elements.payloadState.className="stateBadge";
+      elements.payloadMeta.textContent="Waiting for current controller state. Stop all remains available when connected.";
+      elements.statusSummary.textContent="Waiting for current controller state";
+      elements.statusGrid.replaceChildren();
+      elements.routineSummary.textContent="Waiting for current routine state";
+      elements.geoStatus.textContent="Waiting for current position state";
+    }
+    connectionLabel();
+  };
+  renderState=function(data){
+    if(!data?.uplink)return;
+    const previous=state.latest?.uplink;
+    if(previous?.stopPending&&data.uplink.stopPending===false&&previous.session===data.uplink.session&&previous.relaySession===data.uplink.relaySession)log("Stop acknowledged by the controller queue. Check Output for the result.","status");
+    stateAt=Date.now();
+    const nextRelay=data.uplink.relaySession;
+    if(nextRelay&&nextRelay!==relaySession){
+      if(relaySession){
+        if("commandGeneration" in state)state.commandGeneration++;else state.commandEpoch++;
+        log("Relay restarted. Queued commands cancelled; review device state before sending again.","warning");
+      }
+      relaySession=nextRelay;window.ESP32_REMOTE.session=nextRelay;state.cursor=null;
+    }
+    if(data.uplink.session!==session){
+      if(session){
+        if("commandGeneration" in state)state.commandGeneration++;else state.commandEpoch++;
+        log("Device reconnected. Older queued commands cancelled; resuming available output.","status");
+      }
+      session=data.uplink.session;state.cursor=0;
+    }
+    // Until the first full snapshot, the relay may only know device presence.
+    if(data.dispenser===undefined&&document.getElementById("payloadState")){
+      state.latest={uplink:data.uplink};renderTransport();return;
+    }
+    const cursor=state.cursor;
+    baseRender(data);state.cursor=cursor??0;renderTransport();
+  };
+  httpRecovered=function(){baseRecovered();connectionLabel()};
+  runCommand=async function(body,fast=false){
+    if(!relayAlive()||state.latest?.uplink?.online!==true)throw new Error("Device is offline. Commands are not queued.");
+    if(!Number.isFinite(state.latest.uplink.ageMs)&&!priorityStop(body))throw new Error("Waiting for current device state. Commands are not queued.");
+    if(state.latest.uplink.stopPending&&!priorityStop(body))throw new Error("Waiting for Stop confirmation. Use Stop all again to retry.");
+    return baseCommand(body,fast);
+  };
+  pollHttpOnce=async function(){
+    connectionLabel();
+    if(streamLive())return 1000;
+    if(socket?.readyState===1&&Date.now()-Math.max(lastFrame,openedAt)>12000)socket.close();
+    return basePoll();
+  };
+  function connect(){
+    clearTimeout(reconnect);
+    if(document.hidden||socket?.readyState===0||socket?.readyState===1)return;
+    const url=new URL(window.ESP32_REMOTE.wsPath||"/ws",location.href);url.protocol=location.protocol==="https:"?"wss:":"ws:";
+    if(Number.isInteger(state.cursor))url.searchParams.set("since",String(state.cursor));
+    url.searchParams.set("deviceSession",state.latest?.uplink?.session||"");
+    url.searchParams.set("relaySession",window.ESP32_REMOTE.session||"");
+    const current=new WebSocket(url);socket=current;openedAt=Date.now();lastFrame=0;
+    connectTimer=setTimeout(()=>{if(socket===current&&current.readyState===0)current.close()},6000);
+    current.onmessage=event=>{
+      if(socket!==current)return;
+      try{
+        const frame=JSON.parse(event.data);
+        if(!["state","event","sync"].includes(frame.type))return;
+        lastFrame=Date.now();
+        if(frame.type==="state")renderState(frame.data);
+        else if(frame.type==="sync"){renderState(frame.data.state);consumeEvents(frame.data.history,true)}
+        else consumeEvents({events:[frame.data],deviceSession:frame.data.deviceSession,relaySession:frame.data.relaySession});
+      } catch(error){log("Remote stream data was incomplete; refreshing state.","warning");state.nextStateAt=0}
+    };
+    current.onclose=()=>{if(socket!==current)return;clearTimeout(connectTimer);socket=null;state.nextStateAt=0;connectionLabel();if(!document.hidden)reconnect=setTimeout(connect,2000)};
+    current.onerror=()=>current.close();
+  }
+  document.addEventListener("visibilitychange",()=>{if(document.hidden){clearTimeout(reconnect);clearTimeout(connectTimer);socket?.close()}else connect()});
+  window.addEventListener("pagehide",()=>{clearTimeout(reconnect);clearTimeout(connectTimer);socket?.close()});
+  connect();
+}
+
+
+function installMobileDock() {
+  const dock=document.createElement("nav");dock.className="mobileDock";dock.setAttribute("aria-label","Mobile controller shortcuts");
+  const consoleLink=document.createElement("a"),controlsLink=document.createElement("a"),stop=document.createElement("button");
+  consoleLink.href="#commandConsole";consoleLink.textContent="Console";
+  controlsLink.href="#presets";controlsLink.textContent="Controls";
+  stop.id="mobileStop";stop.type="button";stop.className="danger";stop.textContent="Stop all";stop.setAttribute("aria-label","Stop all outputs");
+  stop.addEventListener("click",()=>document.getElementById("stopAll").click());
+  dock.append(consoleLink,controlsLink,stop);document.body.append(dock);
+}
+
+
+installMobileDock();
+document.getElementById("saveLog").addEventListener("click",saveConsoleLog);
+installRemoteConsole();
+function installPresetSearch() {
+  const input=document.getElementById("presetSearch"),groups=document.getElementById("presetGroups");
+  const count=document.getElementById("presetCount"),empty=document.getElementById("presetEmpty");
+  if(!input||!groups)return;
+  function filter(){
+    const terms=input.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    let visible=0,supported=0;
+    for(const group of groups.children){
+      const title=group.querySelector("h3")?.textContent||"";
+      for(const button of group.querySelectorAll("[data-fill]")){
+        const unavailable=typeof compiled==="function"&&["spp","stepper","dac"].includes(button.dataset.requires)&&!compiled(button.dataset.requires);
+        const words=`${title} ${button.textContent} ${button.dataset.fill}`.toLowerCase();
+        button.hidden=unavailable||!terms.every(term=>words.includes(term));
+        if(!unavailable)supported++;
+        if(!button.hidden)visible++;
+      }
+      group.hidden=[...group.querySelectorAll("[data-fill]")].every(button=>button.hidden);
+    }
+    count.textContent=terms.length?`${visible} matching preset${visible===1?"":"s"}`:`${supported} presets`;
+    empty.hidden=visible>0;
+  }
+  input.addEventListener("input",filter);
+  input.addEventListener("keydown",event=>{if(event.key==="Escape"){event.preventDefault();input.value="";filter()}});
+  // Capability updates must not undo the active filter. Preserve each variant's
+  // existing disabled-state and hardware checks before filtering visibility.
+  if(typeof syncStationPresets==="function"){
+    const original=syncStationPresets;syncStationPresets=function(){original();filter()};
+  }else if(typeof updateActions==="function"){
+    const original=updateActions;updateActions=function(){original();filter()};
+  }else if(typeof updateButtons==="function"){
+    const original=updateButtons;updateButtons=function(){original();filter()};
+  }
+  filter();
+}
+
+
 buildCommandMenu();
+installPresetSearch();
+try {prefill(localStorage.getItem("dispenser-command-draft")||"DispenserStatus")} catch(error){prefill("DispenserStatus")}
 renderTransport();
 log("Controller console ready", "status");
 pollLoop();
+
+function syncStationPresets(){
+    for(const button of elements.presetGroups.querySelectorAll('[data-fill]')){
+      const option=[...elements.commandPreset.options].find(item=>item.value===button.dataset.fill);
+      button.disabled=option?.disabled??false;
+      button.hidden=['stepper','dac','spp'].includes(button.dataset.requires)&&!compiled(button.dataset.requires);
+    }
+    for(const group of elements.presetGroups.children)group.hidden=[...group.querySelectorAll('[data-fill]')].every(button=>button.hidden);
+  }

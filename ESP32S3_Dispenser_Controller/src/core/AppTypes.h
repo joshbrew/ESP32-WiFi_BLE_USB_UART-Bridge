@@ -11,11 +11,13 @@ enum class CommandSource : uint8_t {
   BLE,
   WIFI,
   UART,
-  INTERNAL
+  INTERNAL,
+  LTE
 };
 
 inline const char *commandSourceName(CommandSource source) {
   switch (source) {
+    case CommandSource::LTE: return "LTE";
     case CommandSource::USB: return "USB";
     case CommandSource::SPP: return "SPP";
     case CommandSource::BLE: return "BLE";
@@ -34,13 +36,14 @@ constexpr TransportMask TRANSPORT_MASK_SPP = 1U << 1;
 constexpr TransportMask TRANSPORT_MASK_BLE = 1U << 2;
 constexpr TransportMask TRANSPORT_MASK_WIFI = 1U << 3;
 constexpr TransportMask TRANSPORT_MASK_UART = 1U << 4;
+constexpr TransportMask TRANSPORT_MASK_LTE = 1U << 5;
 constexpr TransportMask TRANSPORT_MASK_DEFAULT = 1U << 7;
 constexpr TransportMask TRANSPORT_MASK_ALL =
   TRANSPORT_MASK_USB |
   TRANSPORT_MASK_SPP |
   TRANSPORT_MASK_BLE |
   TRANSPORT_MASK_WIFI |
-  TRANSPORT_MASK_UART;
+  TRANSPORT_MASK_UART | TRANSPORT_MASK_LTE;
 
 
 inline TransportMask defaultTransportMaskForEvent(CommandSource source) {
@@ -49,18 +52,20 @@ inline TransportMask defaultTransportMaskForEvent(CommandSource source) {
   // SendWiFi/SendBLE for deliberate cross-transport payloads.
   constexpr TransportMask recovery = TRANSPORT_MASK_USB | TRANSPORT_MASK_UART;
   switch (source) {
+    case CommandSource::LTE: return recovery | TRANSPORT_MASK_LTE;
     case CommandSource::WIFI: return recovery | TRANSPORT_MASK_WIFI;
     case CommandSource::BLE: return recovery | TRANSPORT_MASK_BLE;
     case CommandSource::SPP: return recovery | TRANSPORT_MASK_SPP;
     case CommandSource::USB: return recovery;
     case CommandSource::UART: return recovery;
-    case CommandSource::INTERNAL: return recovery | TRANSPORT_MASK_WIFI;
+    case CommandSource::INTERNAL: return recovery | TRANSPORT_MASK_WIFI | TRANSPORT_MASK_LTE;
   }
   return recovery;
 }
 
 inline TransportMask transportMaskForSource(CommandSource source) {
   switch (source) {
+    case CommandSource::LTE: return TRANSPORT_MASK_LTE;
     case CommandSource::USB: return TRANSPORT_MASK_USB;
     case CommandSource::SPP: return TRANSPORT_MASK_SPP;
     case CommandSource::BLE: return TRANSPORT_MASK_BLE;
@@ -110,6 +115,5 @@ using BatchCommandSubmitter = bool (*)(
 );
 
 using StateProvider = String (*)(void *context);
-using MavlinkReceiver = void (*)(void *context, const uint8_t *data, size_t length, uint32_t receivedAt);
 
 #endif  // ESP32_STEPPER_DUAL_DAC_APPTYPES_H

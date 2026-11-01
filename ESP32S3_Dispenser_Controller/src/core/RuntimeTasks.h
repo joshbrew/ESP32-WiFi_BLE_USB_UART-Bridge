@@ -13,6 +13,7 @@
 #include "../radio/RadioManager.h"
 #include "../hardware/StatusIndicators.h"
 #include "../transports/TransportHub.h"
+#include "../transports/LteTransport.h"
 #include "../web/WebPortal.h"
 
 // GO HERE when a subsystem needs regular servicing on the control/network core.
@@ -28,7 +29,8 @@ class RuntimeTasks {
     RadioManager &radios,
     WebPortal &webPortal,
     TransportHub &transports,
-    StatusIndicators &indicators
+    StatusIndicators &indicators,
+    LteTransport &lte
   );
 
   bool begin();
@@ -48,6 +50,7 @@ class RuntimeTasks {
   WebPortal &webPortal_;
   TransportHub &transports_;
   StatusIndicators &indicators_;
+  LteTransport &lte_;
   TaskHandle_t networkTask_;
   bool radioSafetyApplied_;
 };

@@ -22,6 +22,7 @@
 #include "src/hardware/StatusIndicators.h"
 #include "src/transports/TransportBridge.h"
 #include "src/transports/TransportHub.h"
+#include "src/transports/LteTransport.h"
 #include "src/web/WebPortal.h"
 
 #if APP_DRONE_DISPENSER_ADDON_ENABLED
@@ -34,6 +35,7 @@
 
 EventBus events;
 TransportHub transports(events);
+LteTransport lte(events);
 WebPortal webPortal(events);
 
 #if APP_DRONE_DISPENSER_ADDON_ENABLED
@@ -69,7 +71,8 @@ RuntimeTasks runtimeTasks(
   radios,
   webPortal,
   transports,
-  indicators);
+  indicators,
+  lte);
 
 bool runtimeTaskStarted = false;
 
@@ -160,6 +163,9 @@ void setup() {
 
   Serial.println("[BOOT] starting network/control task");
   Serial.flush();
+  if (!lte.begin(CommandDispatcher::batchThunk, &dispatcher, CommandRouter::webStateThunk, &router)) {
+    Serial.println("[LTE] worker unavailable; local transports remain active");
+  }
   runtimeTaskStarted = runtimeTasks.begin();
   printHeapCheckpoint("after-runtime-task");
 

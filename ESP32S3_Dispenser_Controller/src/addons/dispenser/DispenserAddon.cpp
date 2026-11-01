@@ -846,6 +846,10 @@ bool DispenserAddon::validatePin(int pin, String &reason) const {
     reason = "GPIO" + String(pin) + " is owned by the status indicators";
     return false;
   }
+  if (APP_LTE_ENABLED && (pin == LteConfig::RX_PIN || pin == LteConfig::TX_PIN)) {
+    reason = "GPIO" + String(pin) + " is owned by the LTE modem UART";
+    return false;
+  }
   if (pin == AppConfig::PIN_DISPENSER_INTERLOCK) {
     reason = "the dispenser output cannot share the external interlock pin";
     return false;

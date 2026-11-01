@@ -11,7 +11,8 @@ RuntimeTasks::RuntimeTasks(
   RadioManager &radios,
   WebPortal &webPortal,
   TransportHub &transports,
-  StatusIndicators &indicators
+  StatusIndicators &indicators,
+  LteTransport &lte
 ) : events_(events),
     dispatcher_(dispatcher),
     router_(router),
@@ -21,6 +22,7 @@ RuntimeTasks::RuntimeTasks(
     webPortal_(webPortal),
     transports_(transports),
     indicators_(indicators),
+    lte_(lte),
     networkTask_(nullptr),
     radioSafetyApplied_(false) {}
 
@@ -134,13 +136,14 @@ void RuntimeTasks::serviceOnce() {
   radios_.service();
   webPortal_.service();
   transports_.service();
+  lte_.serviceControl();
   dispatcher_.service();
   router_.service();
   selfTest_.service();
   addon_.service();
   indicators_.service(
-    radios_.hasUserConnection(),
-    radios_.isSeekingConnection(),
+    radios_.hasUserConnection() || lte_.isConnected(),
+    radios_.isSeekingConnection() || lte_.isSeeking(),
     dispatcher_.hasPendingCommands() || addon_.isBusy() || addon_.hasTimedOperationActive()
   );
 }

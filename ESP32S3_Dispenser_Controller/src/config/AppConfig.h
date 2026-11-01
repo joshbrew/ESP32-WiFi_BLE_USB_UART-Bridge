@@ -5,6 +5,20 @@
 #include <freertos/FreeRTOS.h>
 #include "../../QuickConfig.h"
 
+// Optional cellular uplink. QuickConfig is the normal user-facing switch.
+#ifndef APP_ENABLE_LTE
+#ifdef DRONE_CFG_ENABLE_LTE
+#define APP_ENABLE_LTE DRONE_CFG_ENABLE_LTE
+#else
+#define APP_ENABLE_LTE 0
+#endif
+#endif
+#define APP_LTE_ENABLED APP_ENABLE_LTE
+#if APP_ENABLE_LTE != 0 && APP_ENABLE_LTE != 1
+#error APP_ENABLE_LTE must be 0 or 1.
+#endif
+
+
 // ---------------------------------------------------------------------------
 // ADVANCED BUILD SETTINGS AND SAFE FALLBACKS
 // ---------------------------------------------------------------------------
@@ -646,6 +660,13 @@ constexpr UBaseType_t NETWORK_TASK_PRIORITY = 2;
 constexpr BaseType_t NETWORK_TASK_CORE = 0;
 constexpr TickType_t NETWORK_TASK_DELAY_TICKS = 1;
 
+constexpr bool isAvailableAddonPin(int pin) {
+  return isConservativePayloadOutputPin(pin) && !isStatusIndicatorPin(pin) &&
+    (!ENABLE_DRONE_DISPENSER_ADDON || (pin != PIN_DISPENSER && pin != PIN_DISPENSER_INTERLOCK)) &&
+    (!ENABLE_STEPPER_DAC_ADDON || (pin != PIN_STEPPER_IN1 && pin != PIN_STEPPER_IN2 &&
+      pin != PIN_STEPPER_IN3 && pin != PIN_STEPPER_IN4 && pin != PIN_DIGITAL_OUTPUT));
+}
 }  // namespace AppConfig
+#include "LteConfig.h"
 
 #endif  // DRONE_GEL_CONTROLLER_APPCONFIG_H

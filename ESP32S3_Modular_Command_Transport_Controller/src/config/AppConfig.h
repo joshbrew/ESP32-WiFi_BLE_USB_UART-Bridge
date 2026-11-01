@@ -16,6 +16,15 @@
 #define APP_STATUS_RGB_BRIGHTNESS 24
 #endif
 
+// LTE is an optional, S3-only MQTT/TLS uplink. Source iteration: leave off until bench validation.
+#ifndef APP_ENABLE_LTE
+#define APP_ENABLE_LTE 0
+#endif
+#define APP_LTE_ENABLED APP_ENABLE_LTE
+#if APP_LTE_ENABLED != 0 && APP_LTE_ENABLED != 1
+#error APP_ENABLE_LTE must be 0 or 1.
+#endif
+
 // Build switches. Comment out a line to compile that feature out.
 // Every translation unit includes this header, so the project has one normal
 // configuration source and no source file includes the Arduino sketch.
@@ -291,5 +300,7 @@ static_assert(!ENABLE_AUX_UART || (isAvailableAddonPin(AUX_UART_RX_PIN) &&
   "Auxiliary UART needs two distinct available S3 GPIOs; configure RX/TX before enabling it.");
 
 }  // namespace AppConfig
+
+#include "LteConfig.h"
 
 #endif  // ESP32_MODULAR_CONTROLLER_APPCONFIG_H

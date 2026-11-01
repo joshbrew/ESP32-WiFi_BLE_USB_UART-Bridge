@@ -1,5 +1,21 @@
 # Raspberry Pi Zero W / Zero 2 W Controller
 
+The compact console places command prefill and live output beside grouped preset
+buttons on desktop, with a stacked phone layout. Presets prefill the editor; use
+Send to execute. The dispenser's arm/pulse/stop controls are first in its side
+panel. Follow can be turned off to read earlier output, and non-sensitive command
+drafts survive reloads. Temporary read failures back off and reconnect; a lost
+command acknowledgement remains explicit because the command may have executed.
+
+On phones, a fixed bottom bar keeps Console, Controls and Stop all reachable
+while scrolling. Save log downloads the displayed output as a text file.
+Find a preset filters buttons by name, group or command without executing them;
+Escape clears the search. Dispensing controls stay above the preset search.
+The shortcuts use the Pi's existing HTTP/BLE control and output paths.
+
+This UI iteration was checked with source/browser tests. **No firmware compilation
+was run in this iteration.**
+
 A Python/Linux version of the modular command bridge and dispenser system, with
 its own mobile web console. Both Pi boards use the same source. Use Raspberry Pi
 OS Lite **32-bit** for a common image that supports the original ARMv6 Zero W and

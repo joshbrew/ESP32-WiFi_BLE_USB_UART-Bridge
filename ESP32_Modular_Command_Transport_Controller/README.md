@@ -1,5 +1,42 @@
 # ESP32 Modular Command + Transport Controller
 
+The root [controller.cmd](../controller.cmd) provides setup, COM-port discovery,
+compile and flash commands. Flash asks you to confirm its detected port before
+writing; compile installs missing tools/packages and saves reusable binaries.
+See [CLI usage](../docs/CONTROLLER_CLI.md).
+
+For repeat uploads of an already-built binary, use the root
+[Flash Firmware.cmd](../Flash%20Firmware.cmd) launcher instead of Arduino Upload.
+See [flash without recompiling](../docs/FLASHING_PRECOMPILED.md). The binary keeps
+the board settings and features selected when it was built.
+
+The compact console places command prefill and live output beside grouped preset
+buttons on desktop, with a stacked phone layout. Presets prefill the editor; use
+Send to execute. The dispenser's arm/pulse/stop controls are first in its side
+panel. Follow can be turned off to read earlier output, and non-sensitive command
+drafts survive reloads. Temporary read failures back off and reconnect; a lost
+command acknowledgement remains explicit because the command may have executed.
+
+On phones, a fixed bottom bar keeps Console, Controls and Stop all reachable
+while scrolling. Save log downloads the displayed output as a text file.
+Find a preset filters buttons by name, group or command without executing them;
+Escape clears the search. Dispensing controls stay above the preset search.
+Output tracking follows displayed messages rather than queue acknowledgements.
+Local reconnects handle a previous-boot cursor; remote reconnects recover available
+cached output and report known history gaps.
+
+On the hosted LTE console, open Connection to see the browser link, broker report
+and controller state age. Check connection reads status without resending commands.
+After a new device connection, Send waits for its current state; Stop all can still
+reach a connected controller while that state is pending. Local consoles do not
+request the relay's diagnostics endpoint.
+
+This UI iteration was checked with source/browser tests. **No firmware compilation
+was run in this iteration.**
+
+The LOLIN32 keeps its existing local transport options. LTE firmware work targets
+the S3 variants because of the additional memory needed alongside Bluetooth.
+
 This is the transport-only bring-up firmware for a classic ESP32/LOLIN32-class board. It provides a shared command system over USB serial, Wi-Fi HTTP, BLE UART, optional Classic Bluetooth SPP, and optional auxiliary UART. It also includes a browser console, bounded event queues, radio-profile rollback, status indicators, a self-test framework, and validated HTTP OTA.
 
 ## Table of contents

@@ -1,5 +1,20 @@
 ## ESP32 WiFi-BLE-USB-UART Bridge
 
+Use [controller.cmd](controller.cmd) for `setup`, `ports`, `doctor`, `compile` and
+`flash`. Flashing reuses existing binaries, detects USB COM candidates and asks
+you to confirm the board/port before writing. Compile can install missing CLI
+tools and Arduino packages automatically. All four ESP32 variants are supported;
+see [the command-line guide](docs/CONTROLLER_CLI.md).
+The [Flash Firmware.cmd](Flash%20Firmware.cmd) double-click launcher uses the same
+flash command.
+
+All five controller variants share the compact console/preset layout; dispenser
+controls lead their side panel. The two ESP32-S3 variants now include an opt-in
+MQTT/TLS LTE transport, with an [HTTPS field-login relay](ESP32S3_Modular_Command_Transport_Controller/relay/README.md)
+and [SARA-R4 wiring/provisioning guide](ESP32S3_Modular_Command_Transport_Controller/docs/LTE_FIELD_ACCESS.md).
+LTE remains disabled by default. This source/UI iteration has not compiled or
+bench-tested firmware, and no remote host has been deployed yet.
+
 This repo contains four Arduino firmware variants and a Raspberry Pi Linux port. This is a full suite so you only need to add your own sensor and controller programs on.
 
 #### [ESP32_Modular_Command_Transport_Controller/](https://github.com/joshbrew/ESP32-WiFi_BLE_USB_UART-Bridge/tree/main/ESP32_Modular_Command_Transport_Controller)

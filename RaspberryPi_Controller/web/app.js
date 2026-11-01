@@ -18,7 +18,7 @@ let testGpsTimer = null, testGpsGeneration = 0, testGpsSending = false;
 function log(message) {
   $("log").textContent += `[${new Date().toLocaleTimeString()}] ${message}\n`;
   if ($("log").textContent.length > 32000) $("log").textContent = $("log").textContent.slice(-24000);
-  $("log").scrollTop = $("log").scrollHeight;
+  if ($("followLog").checked) $("log").scrollTop = $("log").scrollHeight;
 }
 function live(ok, message) {
   state.connected = ok;
@@ -83,7 +83,7 @@ function updateButtons() {
   const geo = state.latest?.geo, mission = geo?.active;
   const adminBusy = state.latest?.administrationBusy;
   for (const button of document.querySelectorAll("button")) {
-    if (["stopAll", "clearLog", "connectBle", "disconnectBle", "loadCustom"].includes(button.id)) continue;
+    if (["stopAll", "clearLog", "connectBle", "disconnectBle", "loadCustom", "saveLog", "mobileStop"].includes(button.id) || button.dataset.fill) continue;
     const safe = /^(StopAll|Disarm|DispenseStop|RoutineStop|GeoStop|Stop|CoilsOff|SelfTestAbort|.*:OFF)$/i.test(button.dataset.command || "");
     button.disabled = !safe && (state.busy || !state.connected || adminBusy || mission);
   }
@@ -113,14 +113,15 @@ function updateButtons() {
   $("transportSummary").textContent = state.rx ? "BLE transport" : "HTTP transport";
   $("compiledSummary").textContent = "Wi-Fi · BLE UART · Bluetooth serial · USB · UART";
 }
-async function fetchJson(path, options = {}) {
+async function fetchJson(path, options = {}, background = false) {
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 5000);
+  if(background)state.pollAbort=controller;
   try {
     const response = await fetch(path, {...options, signal: controller.signal, cache: "no-store"});
     const payload = await response.json();
-    if (!response.ok) { const error = new Error(payload.error || `HTTP ${response.status}`); error.retryable = payload.retryable; throw error; }
+    if (!response.ok) { const error = new Error(payload.error || `HTTP ${response.status}`); error.retryable = payload.retryable; error.httpStatus=response.status; throw error; }
     return payload;
-  } finally { clearTimeout(timer); }
+  } finally { clearTimeout(timer); if(state.pollAbort===controller)state.pollAbort=null; }
 }
 function writeBLE(text) {
   const work = async () => {
@@ -139,6 +140,7 @@ function writeBLE(text) {
   return result;
 }
 function submit(body, emergency = false) {
+  state.pollAbort?.abort();
   const commands = body.split(/\r?\n/).map(line => line.trim());
   if (commands.some(line => /^(StopAll|Disarm|DispenserDisarm|DispenseStop|DispenserOff|RoutineStop|GeoStop|Stop|CoilsOff|GPIO26:OFF)$/i.test(line))) { stopTestGps(); emergency = true; }
   if (commands.some(line => /^(GeoClear|GeoLoad|GeoResetPosition|GeoSource:|Mode|ConfigApply|Reboot|WebRestart|SelfTestStart)/i.test(line))) stopTestGps();
@@ -167,7 +169,7 @@ function submit(body, emergency = false) {
 }
 async function action(work) {
   if (state.busy) return;
-  state.busy = true; updateButtons();
+  state.busy = true; state.pollAbort?.abort(); updateButtons();
   try { await work(); } catch (error) { log(error.message); }
   finally { state.busy = false; updateButtons(); }
 }
@@ -214,25 +216,39 @@ async function connectBLE() {
   } catch (error) { device.gatt.disconnect(); disconnected(); throw error; }
 }
 async function poll() {
+  if(state.busy || document.hidden){setTimeout(poll,500);return}
   try {
-    if (state.rx) {
-      if (!state.blePending || Date.now() - state.bleRequested > 5000) {
-        state.blePending = true; state.bleRequested = Date.now();
-        await writeBLE("@STATE\n");
-      }
+    if(state.rx){
+      if(!state.blePending || Date.now()-state.bleRequested>5000){state.blePending=true;state.bleRequested=Date.now();await writeBLE("@STATE\n")}
     } else {
-      const data = await fetchJson("/api/state");
-      // A restart resets the event sequence; fetch history from the beginning.
-      if (data.latestEventId < state.cursor) state.cursor = 0;
-      render(data);
-      const events = await fetchJson(`/api/events?since=${state.cursor}&limit=16`);
-      if (events.gap) log("Event history wrapped or controller restarted");
-      for (const event of events.events) log(event.q ? event.t : `${event.l.toUpperCase()} ${event.s}: ${event.t}`);
-      state.cursor = events.cursor; live(true, "HTTP connected");
+      const read=async()=>{
+        if(state.busy)return;
+        const data=await fetchJson("/api/state",{},true);
+        if(data.latestEventId<state.cursor)state.cursor=0;
+        render(data);
+        const events=await fetchJson(`/api/events?since=${state.cursor}&limit=16`,{},true);
+        if(events.gap)log("Event history wrapped or controller restarted");
+        for(const event of events.events)log(event.q?event.t:`${event.l.toUpperCase()} ${event.s}: ${event.t}`);
+        state.cursor=events.cursor;
+        if(state.offlineLogged)log("Connection restored.");
+        state.offlineLogged=false;state.pollFailures=0;state.lastContact=Date.now();live(true,"Connected");
+      };
+      const pending=httpTail.then(read,read);httpTail=pending.catch(()=>{});await pending;
     }
-  } catch (error) { live(false, "Disconnected"); updateButtons(); }
-  setTimeout(poll, state.rx ? 1000 : 700);
+  } catch(error){
+    if(error.name!=="AbortError" || !state.busy){
+      state.pollFailures=(state.pollFailures||0)+1;
+      const denied=[401,403].includes(error.httpStatus);
+      if(denied || (state.pollFailures>=3 && Date.now()-(state.lastContact||0)>8000)){
+        live(false,denied?"Access denied":"Controller offline");
+        if(!state.offlineLogged)log(denied?"Sign in to access this controller.":"Connection interrupted; reconnecting automatically.");
+        state.offlineLogged=true;
+      } else {$("liveDot").classList.remove("on");$("liveText").textContent="Reconnecting…"}
+    }
+  }
+  setTimeout(poll,state.rx?1000:Math.min(4000,700*(state.pollFailures||1)));
 }
+
 function routineName() {
   const name = $("routineName").value.trim();
   if (!/^[A-Za-z0-9_-]{1,15}$/.test(name)) throw new Error("Use 1-15 letters, digits, hyphens, or underscores for the routine name");
@@ -487,4 +503,80 @@ $("geoTestStream").addEventListener("change", () => {
 for (const id of ["routineContinuous", "customContinuous"]) $(id).addEventListener("change", updateButtons);
 window.addEventListener("pagehide", stopTestGps);
 window.addEventListener("beforeunload", stopTestGps);
+function rememberDraft(){
+  const value=$("commandInput").value.slice(0,2048);
+  try{if(/WiFi(?:Ap|Sta)Password:/i.test(value))localStorage.removeItem("pi-command-draft");else localStorage.setItem("pi-command-draft",value)}catch(error){}
+}
+function fillCommand(value){$("commandInput").value=value;$("commandPreset").value=value;rememberDraft();$("commandInput").focus({preventScroll:true})}
+const presetGroup=document.createElement("section");presetGroup.className="presetGroup";
+const heading=document.createElement("h3");heading.textContent="Controller commands";presetGroup.append(heading);
+const presetButtons=document.createElement("div");presetButtons.className="presetButtons";presetGroup.append(presetButtons);
+for(const option of $("commandPreset").options){if(!option.value)continue;
+  const button=document.createElement("button");button.dataset.fill=option.value;button.textContent=option.value;
+  button.addEventListener("click",()=>fillCommand(option.value));presetButtons.append(button);
+}
+$("presetGroups").append(presetGroup);
+$("commandInput").addEventListener("input",rememberDraft);
+$("commandInput").addEventListener("keydown",event=>{if(event.ctrlKey&&event.key==="Enter"){event.preventDefault();$("sendCommands").click()}});
+$("commandPreset").addEventListener("change",()=>fillCommand($("commandPreset").value));
+try{fillCommand(localStorage.getItem("pi-command-draft")||"Status")}catch(error){fillCommand("Status")}
+
+function saveConsoleLog() {
+  const file=new Blob([document.getElementById("log").textContent],{type:"text/plain;charset=utf-8"});
+  const url=URL.createObjectURL(file),link=document.createElement("a");
+  link.href=url;link.download=`controller-console-${new Date().toISOString().replace(/[:.]/g,"-")}.txt`;
+  document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+
+function installMobileDock() {
+  const dock=document.createElement("nav");dock.className="mobileDock";dock.setAttribute("aria-label","Mobile controller shortcuts");
+  const consoleLink=document.createElement("a"),controlsLink=document.createElement("a"),stop=document.createElement("button");
+  consoleLink.href="#commandConsole";consoleLink.textContent="Console";
+  controlsLink.href="#presets";controlsLink.textContent="Controls";
+  stop.id="mobileStop";stop.type="button";stop.className="danger";stop.textContent="Stop all";stop.setAttribute("aria-label","Stop all outputs");
+  stop.addEventListener("click",()=>document.getElementById("stopAll").click());
+  dock.append(consoleLink,controlsLink,stop);document.body.append(dock);
+}
+
+
+installMobileDock();
+$("saveLog").addEventListener("click",saveConsoleLog);
+function installPresetSearch() {
+  const input=document.getElementById("presetSearch"),groups=document.getElementById("presetGroups");
+  const count=document.getElementById("presetCount"),empty=document.getElementById("presetEmpty");
+  if(!input||!groups)return;
+  function filter(){
+    const terms=input.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    let visible=0,supported=0;
+    for(const group of groups.children){
+      const title=group.querySelector("h3")?.textContent||"";
+      for(const button of group.querySelectorAll("[data-fill]")){
+        const unavailable=typeof compiled==="function"&&["spp","stepper","dac"].includes(button.dataset.requires)&&!compiled(button.dataset.requires);
+        const words=`${title} ${button.textContent} ${button.dataset.fill}`.toLowerCase();
+        button.hidden=unavailable||!terms.every(term=>words.includes(term));
+        if(!unavailable)supported++;
+        if(!button.hidden)visible++;
+      }
+      group.hidden=[...group.querySelectorAll("[data-fill]")].every(button=>button.hidden);
+    }
+    count.textContent=terms.length?`${visible} matching preset${visible===1?"":"s"}`:`${supported} presets`;
+    empty.hidden=visible>0;
+  }
+  input.addEventListener("input",filter);
+  input.addEventListener("keydown",event=>{if(event.key==="Escape"){event.preventDefault();input.value="";filter()}});
+  // Capability updates must not undo the active filter. Preserve each variant's
+  // existing disabled-state and hardware checks before filtering visibility.
+  if(typeof syncStationPresets==="function"){
+    const original=syncStationPresets;syncStationPresets=function(){original();filter()};
+  }else if(typeof updateActions==="function"){
+    const original=updateActions;updateActions=function(){original();filter()};
+  }else if(typeof updateButtons==="function"){
+    const original=updateButtons;updateButtons=function(){original();filter()};
+  }
+  filter();
+}
+
+
+installPresetSearch();
 updateButtons(); poll();

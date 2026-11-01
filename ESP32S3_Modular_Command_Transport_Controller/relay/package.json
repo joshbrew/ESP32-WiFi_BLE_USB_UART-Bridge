@@ -1,0 +1,15 @@
+{
+  "name": "esp32s3-field-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test core.test.mjs healthcheck.test.mjs",
+    "test:server": "node --test server.test.mjs"
+  },
+  "dependencies": {
+    "mqtt": "5.16.1",
+    "ws": "8.22.0"
+  }
+}

@@ -67,6 +67,9 @@
 #define DRONE_CFG_WIFI_AP_SSID "Drone-Gel-Controller"
 #define DRONE_CFG_WIFI_AP_PASSWORD "password"
 
+// Optional SARA-R4 MQTT/TLS uplink; provision LtePrivate.h and the modem CA first.
+#define DRONE_CFG_ENABLE_LTE 0
+
 #endif  // DRONE_USE_QUICK_CONFIG
 
 #endif  // DRONE_GEL_CONTROLLER_QUICKCONFIG_H

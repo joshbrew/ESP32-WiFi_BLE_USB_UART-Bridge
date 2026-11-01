@@ -1,2 +1,5 @@
 node_modules/
 __pycache__/
+
+# Local LTE credentials
+src/config/LtePrivate.h
