@@ -2,6 +2,24 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {RelayCore} from './core.mjs';
 const session='a'.repeat(32);
+test('Wi-Fi failover reports its path, cancels the old session and requires fresh state',async()=>{
+  const {relay,sent}=fixture();
+  assert.equal(relay.state().uplink.transport,'LTE');
+  const pending=relay.command('before-failover','Arm');
+  const next='b'.repeat(32);
+  relay.ingest('devices/test/presence',JSON.stringify({online:true,protocol:2,barrier:0,session:next,uptime:12000,transport:'WiFi'}));
+  await assert.rejects(pending,/session changed/);
+  assert.equal(relay.state().uplink.transport,'WiFi');
+  assert.equal(relay.state().uplink.stale,true);
+  await assert.rejects(relay.command('after-failover','Arm'),/current device state/);
+  assert.equal(sent.length,1,'Failover must not replay previous actuation');
+  relay.ingest('devices/test/state',JSON.stringify({session:next,uptime:12001,captured:12001,state:{ok:true}}));
+  const command=relay.command('new-command','Ping');
+  relay.ingest('devices/test/ack',JSON.stringify({id:'new-command',session:next,accepted:true,acceptedLines:1}));
+  assert.equal((await command).accepted,true);
+  relay.ingest('devices/test/presence',JSON.stringify({online:true,protocol:2,barrier:0,session:'c'.repeat(32),uptime:13000,transport:'untrusted'}));
+  assert.equal(relay.state().uplink.transport,'LTE','Unknown labels must never reach the UI');
+});
 function fixture(ttl=100,withState=true){const sent=[];let now=100000;const relay=new RelayCore({device:'test',ttl,now:()=>now,publish:(topic,body,options,callback)=>{sent.push({topic,data:JSON.parse(body),options});callback?.()}});relay.setBroker(true);relay.ingest('devices/test/presence',JSON.stringify({online:true,protocol:2,barrier:0,session,uptime:10000}));if(withState)relay.ingest('devices/test/state',JSON.stringify({session,uptime:10000,captured:10000,state:{ok:true}}));return {relay,sent,advance:ms=>now+=ms}}
 test('offline commands are rejected rather than queued',async()=>{const {relay,sent}=fixture();relay.setBroker(false);await assert.rejects(relay.command('one','Arm'),/offline/);assert.equal(sent.length,0)});
 test('command IDs deduplicate retries and detect changed bodies',async()=>{const {relay,sent}=fixture();const a=relay.command('one','Ping'),b=relay.command('one','Ping');assert.equal(a,b);assert.equal(sent.length,1);assert.equal(sent[0].options.retain,false);assert.equal(sent[0].options.qos,1);await assert.rejects(relay.command('one','Arm'),/different/);relay.ingest('devices/test/ack',JSON.stringify({id:'one',session,accepted:true,acceptedLines:1}));assert.equal((await a).accepted,true)});

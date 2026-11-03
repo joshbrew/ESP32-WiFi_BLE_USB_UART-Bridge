@@ -1,5 +1,10 @@
 # ESP32-S3 Modular Command + Transport Controller
 
+For guided MQTT/TLS hosting and modem setup, use
+[Setup Field Access.cmd](../Setup%20Field%20Access.cmd). It installs missing
+Docker/Compose and Arduino dependencies and creates matching device settings.
+See [field setup](../docs/FIELD_SETUP.md).
+
 The root [controller.cmd](../controller.cmd) provides setup, COM-port discovery,
 compile and flash commands. Flash asks you to confirm its detected port before
 writing; compile installs missing tools/packages and saves reusable binaries.
@@ -765,3 +770,6 @@ That is expected in this base build. The custom stepper/DAC implementation and i
 - Test long-duration Wi-Fi/BLE coexistence with the final board, antenna, power supply, and traffic pattern.
 - Keep memory, USB, COM, boot straps, and onboard RGB pins free of addon wiring.
 - Keep user addon commands bounded and nonblocking.
+
+Home laptop hosting: [guided Docker setup and port forwarding](../docs/HOME_HOSTING.md).
+S3 LTE builds also support [secure Wi-Fi MQTT fallback](docs/LTE_FIELD_ACCESS.md#wi-fi-fallback-when-lte-fails); local Wi-Fi stays available independently.

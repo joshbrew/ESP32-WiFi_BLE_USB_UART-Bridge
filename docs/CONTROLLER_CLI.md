@@ -1,5 +1,9 @@
 # ESP32 command-line tools
 
+For the complete hosted LTE setup, use **Setup Field Access.cmd** or
+`controller field-setup`. It includes server dependency installation and guided
+modem provisioning. See [field setup](FIELD_SETUP.md).
+
 Run `controller.cmd` from the repository root in a Windows terminal. It supports Windows PowerShell 5.1 and PowerShell 7. No Python installation is needed. The old **Flash Firmware.cmd** launcher now opens the same `flash` command.
 
 ```powershell
@@ -116,3 +120,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\flash_confirmati
 The tests use synthetic images, simulated ports, mock package installs and a recording stand-in for esptool. They cover selection/confirmation, changed devices/files, compile profiles, complete-build publication and dry runs. They do not compile firmware or access serial devices. Real Windows port discovery and Arduino CLI board-profile validation were also checked without compiling. A real hardware upload and a full firmware compile remain to be checked when requested.
 
 References: [Arduino CLI installation](https://arduino.github.io/arduino-cli/1.5/installation/), [compile command](https://arduino.github.io/arduino-cli/1.5/commands/arduino-cli_compile/), [esptool flashing](https://docs.espressif.com/projects/esptool/en/latest/esp32/esptool/basic-commands.html).
+
+## Home server setup
+
+`controller home-setup [-Variant s3-dispenser|s3-transport] [-DryRun]` launches the Windows home-host wizard. **Setup Home Access.cmd** is its double-click entry point. It installs/reuses WSL 2 + Docker Desktop, creates/reuses TLS/credentials, runs the broker/web app locally, offers Cloudflare DNS and modem provisioning, and prints the router forwarding plan. No compile or flash occurs. See [home hosting](HOME_HOSTING.md). Detailed options (`-Domain`, `-PublicAddress`, `-SkipModem`, etc.) are available via `tools/home_setup.ps1`.

@@ -1989,9 +1989,16 @@ void RadioManager::serviceWifiState() {
     return;
   }
 
-  if (config_.wifiRole == WifiRole::STA && config_.fallbackAp) {
+  if (config_.wifiRole == WifiRole::STA && config_.fallbackAp && !apActive_) {
+#if APP_LTE_ENABLED
+    // Keep trying the saved router while the local recovery AP is available.
+    // AP-only fallback would permanently remove the remote Wi-Fi escape path.
+    startApSta();
+    fallbackActive_ = true;
+#else
     WiFi.disconnect(true);
     startAccessPoint(true);
+#endif
     return;
   }
 

@@ -95,6 +95,11 @@ const server=http.createServer((req,res)=>{
     assert.match(download.suggestedFilename(),/^controller-console-.*\.txt$/);
     assert.equal(fs.readFileSync(await download.path(),'utf8'),beforeExport);
 
+    snapshot.uplink.transport='WiFi';await push(snapshot);
+    assert.equal(await page.locator('#transportSummary').textContent(),'Remote Wi-Fi');
+    assert.match(await page.locator('#liveText').textContent(),/Wi-Fi connected/);
+    snapshot.uplink.transport='LTE';await push(snapshot);
+    assert.equal(await page.locator('#transportSummary').textContent(),'Remote LTE');
     snapshot.uplink.stopPending=true;await push(snapshot);
     assert(await page.locator('#sendCommands').isDisabled());assert(await page.locator('#stopAll').isEnabled());
     assert.match(await page.evaluate(()=>runCommand('Arm').catch(error=>error.message)),/Waiting for Stop confirmation/);

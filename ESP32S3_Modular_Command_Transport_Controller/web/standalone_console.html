@@ -445,8 +445,9 @@ function installRemoteConsole() {
     const reachable=relayAlive(),online=reachable&&uplink?.online===true;
     const age=Number.isFinite(uplink?.ageMs)?Math.max(0,Math.floor((uplink.ageMs+Date.now()-stateAt)/1000)):null;
     const stale=uplink?.stale||age===null||age>5;
-    setLive(online,online?(age===null?"Waiting for device state":stale?`LTE connected · state ${age}s old`:"LTE connected"):reachable?(uplink?.reason||"Device offline"):"Relay unavailable",online&&stale?"retrying":undefined);
-    elements.transportSummary.textContent="Remote LTE";
+    const link=uplink?.transport==="WiFi"?"Wi-Fi":"LTE";
+    setLive(online,online?(age===null?"Waiting for device state":stale?`${link} connected · state ${age}s old`:`${link} connected`):reachable?(uplink?.reason||"Device offline"):"Relay unavailable",online&&stale?"retrying":undefined);
+    elements.transportSummary.textContent=`Remote ${link}`;
     streamInfo.textContent=uplink?.stopPending?"Stop awaiting confirmation":streamLive()?"● Live stream":reachable?"↻ HTTP fallback":"Relay unreachable";
     ageInfo.textContent=age===null?"Waiting for device state":`State ${age}s old`;
     ageInfo.classList.toggle("stale",stale);

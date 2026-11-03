@@ -1,5 +1,10 @@
 # ESP32-S3 Gel Dispenser Controller
 
+For guided MQTT/TLS hosting and modem setup, use
+[Setup Field Access.cmd](../Setup%20Field%20Access.cmd). It installs missing
+Docker/Compose and Arduino dependencies and creates matching device settings.
+The dispenser UI is selected automatically. See [field setup](../docs/FIELD_SETUP.md).
+
 The root [controller.cmd](../controller.cmd) provides setup, COM-port discovery,
 compile and flash commands. Flash asks you to confirm its detected port before
 writing; compile installs missing tools/packages and saves reusable binaries.
@@ -453,3 +458,6 @@ node web/build_web_assets.mjs --check
   current phase.
 - Use `StopAll` as the universal software-safe command. Maintain an independent
   hardware inhibit for actual flight operations.
+
+Home laptop hosting: [guided Docker setup and port forwarding](../docs/HOME_HOSTING.md).
+S3 LTE builds also support [secure Wi-Fi MQTT fallback](docs/LTE_FIELD_ACCESS.md#wi-fi-fallback-when-lte-fails); local Wi-Fi stays available independently.

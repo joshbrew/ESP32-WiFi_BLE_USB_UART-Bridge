@@ -9,7 +9,7 @@ Setup, inspect, compile, and flash the ESP32 controller variants on Windows.
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Position=0)][ValidateSet('help','ports','doctor','setup','compile','flash')][string]$Command='help',
+    [Parameter(Position=0)][ValidateSet('help','ports','doctor','setup','compile','flash','field-setup','home-setup','modem-provision')][string]$Command='help',
     [ValidateSet('s3-dispenser','s3-transport','lolin32-dispenser','lolin32-transport')][string]$Variant,
     [string]$Port,[string]$BuildDirectory,[string]$ArduinoCliPath,[string]$EsptoolPath,
     [ValidateSet('usb','com')][string]$Serial='usb',
@@ -169,6 +169,9 @@ ESP32 Controller CLI (Windows PowerShell 5.1+)
   controller ports
   controller doctor
   controller setup [-Lte]
+  controller field-setup [-Variant s3-dispenser] [-DryRun]
+  controller home-setup [-Variant s3-dispenser] [-DryRun]
+  controller modem-provision [-Variant s3-dispenser] [-Port COM24] [-DryRun]
   controller compile -Variant s3-dispenser [-Serial usb|com] [-Lte] [-Jobs 2] [-Clean] [-DryRun]
   controller flash -Variant s3-dispenser [-Port COM24] [-BuildDirectory path] [-Baud 921600] [-SkipUnchanged] [-DryRun]
 
@@ -181,6 +184,14 @@ Use -ArduinoCliPath, -EsptoolPath or -ToolsDirectory to override tool discovery.
 }
 function Invoke-ControllerCommand {
     if($Command -eq 'help'){Show-ControllerHelp;return}
+    if($Command -in @('field-setup','home-setup','modem-provision')){
+        if($Variant -and -not $Variant.StartsWith('s3-')){throw 'Field LTE setup requires an S3 variant.'}
+        $params=@{ToolsDirectory=$ToolsDirectory;DryRun=$DryRun};if($Variant){$params.Variant=$Variant}
+        $scriptName='field_setup.ps1';if($Command -eq 'home-setup'){$scriptName='home_setup.ps1'};if($Command -eq 'modem-provision'){$scriptName='modem_provision.ps1';if($Port){$params.Port=$Port}}
+        $global:LASTEXITCODE=0
+        & (Join-Path $PSScriptRoot $scriptName) @params
+        if($LASTEXITCODE -ne 0){throw 'Field setup did not complete. Saved settings can be reused on the next run.'};return
+    }
     if($Command -eq 'ports'){$ports=@(Get-ControllerPorts);if(-not $ports.Count){Write-Output 'No usable board COM ports found.'}else{$ports | Format-Table Port,Name,Reason -AutoSize};return}
     $environment=Get-ControllerEnvironment $ToolsDirectory $ArduinoCliPath
     if($Command -eq 'doctor'){

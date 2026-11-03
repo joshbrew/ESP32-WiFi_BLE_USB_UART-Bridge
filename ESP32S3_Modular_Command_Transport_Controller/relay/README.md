@@ -1,5 +1,12 @@
 # Host the field console
 
+The [guided field setup](../../docs/FIELD_SETUP.md) is now the shortest path:
+double-click **Setup Field Access.cmd** on Windows. It uploads these sources,
+installs missing Ubuntu dependencies including Docker/Compose, preserves existing
+credentials and retrieves matching device settings over SSH. The equivalent
+server-only installer is `sudo bash install.sh --web-domain ... --mqtt-domain ...
+--device-id s3-controller --variant s3-dispenser`.
+
 This is a self-hostable, single-device relay bundle. It is not deployed yet. It needs a Linux server with a public IP, Docker Compose, OpenSSL and two DNS names pointing to it, for example `control.your-domain.com` and `mqtt.your-domain.com`. Allow inbound TCP 80/443 for HTTPS and 8883 for the modem. Node's internal port 8080 is not exposed. A static-only web host cannot run this MQTT broker.
 
 Copy the repository to that host, enter `ESP32S3_Modular_Command_Transport_Controller/relay`, and run once as root (the script assigns the broker key to its container user):
@@ -87,3 +94,7 @@ node --check server.mjs
 ```
 
 The Node tests cover offline rejection, duplicates, expiry, connection sessions, retained-message handling, late Stop acknowledgements and health diagnostics. The server integration check needs OpenSSL (set `OPENSSL` to its executable if needed), and uses a local TLS/MQTT simulator to check command/ack bridging, proxy authentication headers, Origin checks, WebSocket events, rejected subscriptions, health authentication and missing console assets. Browser tests under the sketch's `tests` exercise local and remote presentation against mocks. Container startup, public DNS/HTTPS and modem TLS must be verified on the selected host/hardware before field use. No host has been selected or paid for by this task.
+
+## Host on your own laptop
+
+Run [Setup Home Access.cmd](../../Setup%20Home%20Access.cmd) on Windows, or use `install.sh` on an Ubuntu home machine. See [home hosting](../../docs/HOME_HOSTING.md) for dependency automation, router TCP 80/443/8883 forwarding, DNS-only public-IP records, CGNAT checks and exact credentials. MQTT remains TLS authenticated; both S3 firmwares can fall back to configured Wi-Fi without changing broker identity.

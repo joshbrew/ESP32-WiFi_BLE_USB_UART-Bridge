@@ -7,6 +7,11 @@
 #include <ArduinoMqttClient.h>
 #include <ArduinoJson.h>
 #include <HardwareSerial.h>
+#if APP_WIFI_ENABLED && LTE_WIFI_FALLBACK
+#include <WiFi.h>
+#include <NetworkClientSecure.h>
+#include <time.h>
+#endif
 #include <esp_system.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
@@ -35,8 +40,56 @@ struct LteTransport::Impl {
   LteTransport &owner;
   HardwareSerial uart{LteConfig::UART_PORT};
   TinyGsm modem{uart};
-  TinyGsmClientSecure socket{modem};
+  // Keep socket setup bounded separately from the much longer PDP attach.
+  struct ModemSocket : TinyGsmClientSecure {
+    explicit ModemSocket(TinyGsm &value):TinyGsmClientSecure(value){}
+    int connect(const char *host,uint16_t port) override {return TinyGsmClientSecure::connect(host,port,10);}
+    int connect(IPAddress ip,uint16_t port) override {return TinyGsmClientSecure::connect(ip,port,10);}
+    void stop() override {
+      // Discard this old session instead of draining it. TinyGSM 0.12's short
+      // stop(maxWait) can underflow its remaining timeout after a slow drain.
+      // Synchronous USOCL is supported by all SARA-R4 revisions; a modem which
+      // finishes closing later is retried by the independent attach worker.
+      at->sendAT("+USOCL=",mux);at->waitResponse(1000L);
+      sock_connected=false;sock_available=0;got_data=false;rx.clear();
+    }
+  } socket{modem};
   MqttClient mqtt{socket};
+  bool wifiUplink=false,mqttAttempted=false;
+  enum ModemState : uint8_t { IDLE, PREPARING, READY, FAILED };
+  std::atomic<uint8_t> modemState{IDLE};
+  TaskHandle_t prepareTask=nullptr;
+  // Only the preparation task touches the UART while PREPARING. The MQTT
+  // worker can use its Wi-Fi socket concurrently, and takes UART ownership
+  // only after the release/acquire state handoff to READY.
+  static void prepareRun(void *context) {
+    auto &self=*static_cast<Impl*>(context);
+    for(;;){
+      ulTaskNotifyTake(pdTRUE,portMAX_DELAY);
+      const bool ok=self.modem.init() && self.modem.waitForNetwork(15000L) &&
+        (self.modem.isGprsConnected() || self.modem.gprsConnect(LteConfig::APN,LteConfig::APN_USER,LteConfig::APN_PASSWORD));
+      self.modemState.store(ok?READY:FAILED);
+    }
+  }
+  void stopMqtt() {
+    // Do not query or stop a modem socket before it has been handed to MQTT.
+    // In particular, that would race an in-progress cellular attach.
+    if(mqttAttempted)mqtt.stop();
+    mqttAttempted=false;
+  }
+#if APP_WIFI_ENABLED && LTE_WIFI_FALLBACK
+  NetworkClientSecure wifiSocket;
+  bool clockRequested=false;
+  bool wifiReady() {
+    if(WiFi.status()!=WL_CONNECTED){clockRequested=false;return false;}
+    if(!LteConfig::WIFI_CA_PEM[0])return false;
+    // SNTP runs asynchronously. Never skip certificate date verification.
+    if(!clockRequested){configTime(0,0,"pool.ntp.org","time.cloudflare.com");clockRequested=true;}
+    return time(nullptr)>=1704067200; // At least 2024; TLS checks actual validity.
+  }
+#else
+  bool wifiReady() { return false; }
+#endif
   QueueHandle_t incoming=nullptr, outgoing=nullptr, stops=nullptr, stopReplies=nullptr;
   SemaphoreHandle_t snapshotMutex=nullptr;
   BatchCommandSubmitter submitter=nullptr;
@@ -100,11 +153,27 @@ struct LteTransport::Impl {
     modem.sendAT("+USECPRF=0,3,\"",LteConfig::CA_NAME,"\"");if(modem.waitResponse()!=1)return false;
     modem.sendAT("+USECPRF=0,4,\"",LteConfig::HOST,"\"");return modem.waitResponse()==1;
   }
-  bool connect() {
-    status("connecting; modem calls are isolated from the control task");
-    if(!modem.init() || !modem.waitForNetwork(15000L))return false;
-    if(!modem.isGprsConnected() && !modem.gprsConnect(LteConfig::APN,LteConfig::APN_USER,LteConfig::APN_PASSWORD))return false;
+  bool connectLte() {
+    if(modemState.load()!=READY)return false;
+    stopMqtt();mqtt.setClient(socket);wifiUplink=false;
+    status("cellular context ready; connecting MQTT/TLS");
+    if(!modem.isNetworkConnected() || !modem.isGprsConnected())return false;
     if(!tlsProfile()){status("TLS profile rejected; check CA, clock and modem firmware");return false;}
+    return connectMqtt();
+  }
+  bool connectWifi() {
+#if APP_WIFI_ENABLED && LTE_WIFI_FALLBACK
+    if(!wifiReady())return false;
+    stopMqtt();wifiSocket.setCACert(LteConfig::WIFI_CA_PEM);
+    wifiSocket.setConnectionTimeout(5000);wifiSocket.setTimeout(5000);wifiSocket.setHandshakeTimeout(5);
+    mqtt.setClient(wifiSocket);wifiUplink=true;
+    status("LTE unavailable; connecting MQTT/TLS over Wi-Fi");
+    return connectMqtt();
+#else
+    return false;
+#endif
+  }
+  bool connectMqtt() {
     for(unsigned i=0;i<4;++i)snprintf(session+i*8,9,"%08lx",static_cast<unsigned long>(esp_random()));
     generation.fetch_add(1);barrier.store(0);
     memset(seen,0,sizeof(seen));watchUntil=0;
@@ -113,9 +182,11 @@ struct LteTransport::Impl {
     const String will="{\"online\":false}";
     if(!mqtt.beginWill(topic+"presence",static_cast<unsigned short>(will.length()),false,1))return false;
     mqtt.print(will);if(!mqtt.endWill())return false;
+    mqttAttempted=true;
     if(!mqtt.connect(LteConfig::HOST,LteConfig::BROKER_PORT))return false;
     if(!mqtt.subscribe(topic+"command",1) || !mqtt.subscribe(topic+"watch",0)) {mqtt.stop();return false;}
-    owner.connected_.store(true);status("MQTT/TLS connected");return true;
+    owner.connected_.store(true);
+    status(wifiUplink?"MQTT/TLS connected over Wi-Fi fallback":"MQTT/TLS connected over LTE");return true;
   }
   void receive(int size) {
     if(size<=0)return;
@@ -184,13 +255,39 @@ struct LteTransport::Impl {
   void loop() {
     uart.setRxBufferSize(2048);uart.begin(LteConfig::UART_BAUD,SERIAL_8N1,LteConfig::RX_PIN,LteConfig::TX_PIN);
     uint32_t nextConnect=0,lastPresence=0,lastState=0,eventCursor=owner.events_.latestId();
-    bool haveConnected=false,pendingEventGap=false;
+    bool pendingEventGap=false,wifiAllowed=false;
+    uint32_t nextWifi=0,nextPrepare=0;
+    const uint32_t startedAt=millis(); // Give a ready LTE link first chance.
     for(;;) {
-      if(!mqtt.connected()) {
-        if(owner.connected_.exchange(false)){generation.fetch_add(1);status("link lost; old command sessions invalidated");}
-        if(haveConnected && static_cast<int32_t>(millis()-nextConnect)<0){vTaskDelay(pdMS_TO_TICKS(100));continue;}
-        haveConnected=true;
-        if(!connect()){nextConnect=millis()+15000;vTaskDelay(pdMS_TO_TICKS(100));continue;}
+#if APP_WIFI_ENABLED && LTE_WIFI_FALLBACK
+      if(mqttAttempted && wifiUplink && WiFi.status()!=WL_CONNECTED)stopMqtt();
+#endif
+      if(!wifiAllowed && static_cast<uint32_t>(millis()-startedAt)>=15000U)wifiAllowed=true;
+      if(!mqttAttempted || !mqtt.connected()) {
+        if(owner.connected_.exchange(false)){
+          generation.fetch_add(1);status("link lost; old command sessions invalidated");
+          if(!wifiUplink)modemState.store(IDLE); // The socket owner is this task.
+          nextPrepare=millis();nextConnect=millis();nextWifi=millis();
+        }
+        stopMqtt();
+        uint8_t preparation=modemState.load();
+        if(preparation==FAILED){modemState.store(IDLE);nextPrepare=millis()+15000;preparation=IDLE;}
+        if(preparation==IDLE && static_cast<int32_t>(millis()-nextPrepare)>=0){
+          modemState.store(PREPARING);xTaskNotifyGive(prepareTask);
+          status("preparing LTE; local controls and Wi-Fi remain available");
+        }
+        bool linked=false;
+        if(modemState.load()==READY && static_cast<int32_t>(millis()-nextConnect)>=0){
+          linked=connectLte();
+          if(!linked){stopMqtt();modemState.store(IDLE);nextPrepare=millis()+15000;nextConnect=millis()+15000;}
+        }
+        // PDP attach can take minutes inside TinyGSM. It never holds up this
+        // worker's Wi-Fi path, and a working Wi-Fi link is not probed/switched.
+        if(!linked && wifiAllowed && static_cast<int32_t>(millis()-nextWifi)>=0 && wifiReady()){
+          linked=connectWifi();nextWifi=millis()+5000;
+          if(!linked)stopMqtt();
+        }
+        if(!linked){vTaskDelay(pdMS_TO_TICKS(100));continue;}
         lastPresence=millis()-10000;lastState=millis()-LteConfig::IDLE_STATE_MS;
       }
       // The callback also drains incoming publishes encountered while waiting
@@ -202,7 +299,7 @@ struct LteTransport::Impl {
       const uint32_t now=millis();
       const bool watched=static_cast<int32_t>(watchUntil-now)>0;
       if(now-lastPresence>=10000U || (watched && now-lastPresence>=2000U)) {
-        send("presence","{\"online\":true,\"protocol\":2,\"barrier\":"+String(barrier.load())+",\"session\":\""+String(session)+"\",\"uptime\":"+String(now)+"}");lastPresence=now;
+        send("presence","{\"online\":true,\"transport\":\""+String(wifiUplink?"WiFi":"LTE")+"\",\"protocol\":2,\"barrier\":"+String(barrier.load())+",\"session\":\""+String(session)+"\",\"uptime\":"+String(now)+"}");lastPresence=now;
       }
       if(now-lastState>=(watched?LteConfig::ACTIVE_STATE_MS:LteConfig::IDLE_STATE_MS)) {
         String current;uint32_t captured=0;
@@ -244,7 +341,11 @@ bool LteTransport::begin(BatchCommandSubmitter submitter,void *submitContext,Sta
   impl_->stops=xQueueCreate(1,sizeof(Impl::Command));impl_->stopReplies=xQueueCreate(1,sizeof(Impl::Reply));
   impl_->snapshotMutex=xSemaphoreCreateMutex();
   if(!impl_->incoming||!impl_->outgoing||!impl_->stops||!impl_->stopReplies||!impl_->snapshotMutex){events_.publish(EventLevel::ERROR,"[LTE] queue allocation failed");return false;}
-  if(xTaskCreatePinnedToCore(Impl::run,"lte-modem",LteConfig::TASK_STACK_BYTES,impl_,1,nullptr,0)!=pdPASS){events_.publish(EventLevel::ERROR,"[LTE] worker allocation failed");return false;}
+  if(xTaskCreatePinnedToCore(Impl::prepareRun,"lte-attach",6144,impl_,1,&impl_->prepareTask,0)!=pdPASS){events_.publish(EventLevel::ERROR,"[LTE] attach worker allocation failed");return false;}
+  if(xTaskCreatePinnedToCore(Impl::run,"lte-mqtt",LteConfig::TASK_STACK_BYTES,impl_,1,nullptr,0)!=pdPASS){
+    vTaskDelete(impl_->prepareTask);impl_->prepareTask=nullptr;
+    events_.publish(EventLevel::ERROR,"[LTE] worker allocation failed");return false;
+  }
   started_ = true;
   return true;
 }

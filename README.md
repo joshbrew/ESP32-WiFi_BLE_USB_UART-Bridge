@@ -1,5 +1,11 @@
 ## ESP32 WiFi-BLE-USB-UART Bridge
 
+For guided MQTT/TLS hosting and device setup, double-click
+[Setup Field Access.cmd](Setup%20Field%20Access.cmd). It installs missing server
+dependencies (including Docker/Compose), creates matching credentials/settings
+and offers automated modem certificate/clock provisioning and confirmed flashing.
+See [the guided setup](docs/FIELD_SETUP.md) for the few account/wiring prerequisites.
+
 Use [controller.cmd](controller.cmd) for `setup`, `ports`, `doctor`, `compile` and
 `flash`. Flashing reuses existing binaries, detects USB COM candidates and asks
 you to confirm the board/port before writing. Compile can install missing CLI
@@ -64,3 +70,5 @@ This was tested on a cheap ESP-WROOM-32 (WEMOS Lolin32 variant) without PSRAM wh
 
 
 License: MIT
+
+Host the same field console on your Windows laptop with **Setup Home Access.cmd** or `controller home-setup`. See [home hosting](docs/HOME_HOSTING.md) for automatic Docker setup, saved modem credentials, DNS and router forwarding. S3 LTE builds can also reconnect through configured Wi-Fi with TLS.

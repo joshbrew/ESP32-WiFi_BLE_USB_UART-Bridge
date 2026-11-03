@@ -12,12 +12,12 @@ export class RelayCore extends EventEmitter {
     this.uptime=0;this.snapshot=null;this.events=[];this.requests=new Map();
     this.barrier=0;this.relaySession=randomUUID();this.linkError=null;this.stopPending=false;
     this.droppedThrough=0;this.lastEventId=0;
-    this.startedAt=this.now();this.brokerReason='Relay link is connecting';
+    this.transport='LTE';this.startedAt=this.now();this.brokerReason='Relay link is connecting';
   }
   online(){return this.brokerOnline&&this.deviceOnline&&this.now()-this.lastSeen<20000}
   state(){
     const snapshot=this.snapshot||{ok:true,firmware:'LTE field relay',version:'Waiting for device',radio:{bootModeActive:'LTE',wifiCompiled:false,bleCompiled:false,sppCompiled:false},addon:{name:'none',active:false},send:{},queue:{waiting:0,capacity:8}};
-    return {...snapshot,uplink:{transport:'LTE',online:this.online(),brokerOnline:this.brokerOnline,session:this.session,relaySession:this.relaySession,reason:this.brokerOnline?this.linkError:this.brokerReason,stopPending:this.stopPending,ageMs:this.lastState?this.now()-this.lastState:null,stale:!this.lastState||this.now()-this.lastState>5000}};
+    return {...snapshot,uplink:{transport:this.transport,online:this.online(),brokerOnline:this.brokerOnline,session:this.session,relaySession:this.relaySession,reason:this.brokerOnline?this.linkError:this.brokerReason,stopPending:this.stopPending,ageMs:this.lastState?this.now()-this.lastState:null,stale:!this.lastState||this.now()-this.lastState>5000}};
   }
   setBroker(online,reason='Relay link is reconnecting'){this.brokerOnline=online;this.brokerReason=online?null:reason;if(!online){this.deviceOnline=false;this.failPending('Broker connection lost; command delivery is unconfirmed')}this.emit('state',this.state())}
   health(){
@@ -60,7 +60,7 @@ export class RelayCore extends EventEmitter {
         this.deviceOnline=false;this.linkError='Device firmware needs LTE protocol 2';
         this.failPending('Device protocol changed; command delivery is unconfirmed');this.emit('state',this.state());return;
       }
-      this.linkError=null;
+      this.linkError=null;this.transport=data.transport==='WiFi'?'WiFi':'LTE';
       if(this.session!==data.session){this.failPending('Device session changed; old commands were cancelled');this.events=[];this.droppedThrough=0;this.lastEventId=0;this.snapshot=null;this.lastState=0;this.session=data.session;this.barrier=data.barrier}
       // A presence frame sent just before Stop must not lower its new barrier.
       if(((data.barrier-this.barrier)|0)>0)this.barrier=data.barrier;

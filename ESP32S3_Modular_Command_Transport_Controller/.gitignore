@@ -6,4 +6,6 @@ __pycache__/
 src/config/LtePrivate.h
 relay/.env
 relay/secrets/
+relay/backups/
+relay/.relay-setup-*/
 relay/node_modules/

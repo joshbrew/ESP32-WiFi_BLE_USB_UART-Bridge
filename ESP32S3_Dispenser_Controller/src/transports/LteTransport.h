@@ -7,8 +7,8 @@
 #include "../core/AppTypes.h"
 #include "../core/EventBus.h"
 
-// Only the worker touches the modem. Only serviceControl invokes application
-// callbacks, keeping slow AT/TLS calls away from command/addon servicing.
+// The attach/MQTT workers hand off exclusive modem ownership. Only
+// serviceControl invokes application callbacks; AT/TLS calls stay off controls.
 class LteTransport {
  public:
   explicit LteTransport(EventBus &events) : events_(events) {}

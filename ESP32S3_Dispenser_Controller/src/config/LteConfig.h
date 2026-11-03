@@ -29,11 +29,24 @@
 #ifndef LTE_CA_NAME
 #define LTE_CA_NAME "relay-ca"
 #endif
+#ifndef LTE_UART_BAUD
+#define LTE_UART_BAUD 115200
+#endif
+// Wi-Fi uses the same broker credentials, but needs its own public CA copy.
+// Field setup embeds it automatically; never put the CA private key here.
+#ifndef LTE_WIFI_FALLBACK
+#define LTE_WIFI_FALLBACK APP_WIFI_ENABLED
+#endif
+#ifndef LTE_WIFI_CA_PEM
+#define LTE_WIFI_CA_PEM ""
+#endif
 namespace LteConfig {
+constexpr bool WIFI_FALLBACK = LTE_WIFI_FALLBACK && APP_WIFI_ENABLED;
+constexpr const char *WIFI_CA_PEM = LTE_WIFI_CA_PEM;
 constexpr int RX_PIN = 17; // ESP32 RX <- shield D8 in SOFT switch position.
 constexpr int TX_PIN = 18; // ESP32 TX -> shield D9 in SOFT switch position.
 constexpr int UART_PORT = 2;
-constexpr uint32_t UART_BAUD = 115200;
+constexpr uint32_t UART_BAUD = LTE_UART_BAUD;
 constexpr uint16_t BROKER_PORT = 8883;
 constexpr size_t SNAPSHOT_BYTES = 8192;
 constexpr size_t MESSAGE_BYTES = 12288;
