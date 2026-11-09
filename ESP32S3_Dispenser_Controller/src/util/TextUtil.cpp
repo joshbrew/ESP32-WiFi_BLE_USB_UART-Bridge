@@ -108,6 +108,21 @@ bool parseFloat(String value, float &result) {
   return true;
 }
 
+bool parseMotorPulse(const String &command, uint32_t &duration, uint32_t &level, uint32_t *motor) {
+  if (!startsWithIgnoreCase(command, "MotorPulse:")) return false;
+  const int comma = command.indexOf(',', 11);
+  if (comma < 0 || !parseUnsigned32(command.substring(11, comma), duration) || !duration) return false;
+  const int motorSeparator = command.indexOf(',', comma + 1);
+  const String levelText = motorSeparator < 0 ? command.substring(comma + 1) :
+    command.substring(comma + 1, motorSeparator);
+  if (!parseUnsigned32(levelText, level) || level < 1 || level > 255) return false;
+  uint32_t number = 1;
+  if (motorSeparator >= 0 &&
+      (!parseUnsigned32(command.substring(motorSeparator + 1), number) || !number)) return false;
+  if (motor) *motor = number;
+  return true;
+}
+
 bool parseDispense(const String &command, int &pin, uint32_t &duration) {
   pin = -1;
   if (startsWithIgnoreCase(command, "Dispense:"))

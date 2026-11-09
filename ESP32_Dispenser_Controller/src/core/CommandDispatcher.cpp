@@ -23,6 +23,9 @@ bool isEmergencyCommand(String line) {
     line.equalsIgnoreCase("DispenserDisarm") || line.equalsIgnoreCase("DispenserOff")
 #if APP_DRONE_DISPENSER_ADDON_ENABLED
     || line.equalsIgnoreCase("GPIO26:OFF")
+#if DRONE_CFG_ENABLE_DRV8871
+    || line.equalsIgnoreCase("MotorStop") || line.equalsIgnoreCase("MotorCoast")
+#endif
 #endif
     ;
 }

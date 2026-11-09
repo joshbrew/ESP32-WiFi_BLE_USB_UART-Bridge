@@ -30,6 +30,15 @@ inline std::vector<GpioWrite> testWrites;
 inline void digitalWrite(int pin,int level){testLevels[pin]=level;testWrites.push_back({millis(),pin,level});}
 inline void pinMode(int pin,int mode){testModes[pin]=mode;}
 inline int digitalRead(int pin){return testLevels[pin];}
+inline std::map<int, uint32_t> testPwm;
+inline bool ledcAttach(uint8_t pin, uint32_t, uint8_t) { return testPwm.emplace(pin, 0).second; }
+inline bool ledcWrite(uint8_t pin, uint32_t duty) {
+  auto it = testPwm.find(pin);
+  if (it == testPwm.end()) return false;
+  it->second = duty;
+  return true;
+}
+inline bool ledcDetach(uint8_t pin) { return testPwm.erase(pin) != 0; }
 class String {
  public:
   std::string value;

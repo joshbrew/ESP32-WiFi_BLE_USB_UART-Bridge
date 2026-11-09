@@ -368,3 +368,31 @@ DACErase
 The advanced profile preserves the original behaviour and documentation under
 `src/addons/stepper_dac/`. It is intended for supervised bench work rather than
 the normal aircraft payload build.
+
+## DRV8871 motor (optional dispenser hardware)
+
+| Command | Effect |
+| --- | --- |
+| `MotorStart` or `MotorStart:128` | Run at the selected or explicit level within the motor, payload and arm limits |
+| `MotorPulse:250,128` | Run for 250 ms at level 128, then coast |
+| `MotorLevel:128` | Set a level from 0–255. While driving, update duty without restarting the timer. Zero releases the motor |
+| `MotorStop` | Brake a running motor and cancel its timer |
+| `MotorCoast` | Release the motor and cancel its timer |
+| `MotorStatus` | Show each configured motor's mode, level and remaining time |
+
+Omitting a motor number selects motor 1. Add a final motor number to address
+another pair, for example `MotorStart:128,2`, `MotorPulse:250,128,2` or
+`MotorLevel:128,2`. Stop and Coast act on the active motor.
+
+Start and Pulse require Arm and a level of 1–255.
+
+Add a saved motor step with `RoutineAdd:name:MOTOR:onMs,offMs,level[,motor]`.
+For example, `RoutineAdd:dots:MOTOR:250,100,128,2` targets motor 2.
+A routine can sequence steps for different motors. Only one motor or GPIO
+output can run at a time. The motor
+runs at that step's drive level, coasts, and waits for the off period before the
+next step. Use a positive off period for repeated pulses, including `FOREVER`.
+A single bounded steady run uses off time 0 and repeat count 1. The motor and
+payload limits apply to each run, and the arm window must cover the routine.
+`RoutineStop`, `MotorStop`, `MotorCoast` and `StopAll` cancel an active motor
+routine and release its outputs.

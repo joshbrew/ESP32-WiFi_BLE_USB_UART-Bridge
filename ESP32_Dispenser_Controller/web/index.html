@@ -45,6 +45,25 @@
         <input id="pulseDuration" type="number" min="1" value="250" inputmode="numeric">
         <button id="dispensePulse" class="primary">Dispense</button>
       </div>
+      <fieldset id="motorControls" class="motorControls" hidden>
+        <legend>DRV8871 motor</legend>
+        <p id="motorState" class="hint" role="status"></p>
+        <label id="motorChannelField" hidden>Motor
+          <select id="motorChannel"><option value="1">Motor 1</option></select>
+        </label>
+        <label for="motorLevel">Drive level <output id="motorLevelValue" for="motorLevel">128</output> / 255</label>
+        <input id="motorLevel" type="range" min="0" max="255" step="1" value="128">
+        <div class="payloadControls">
+          <button id="motorStart" type="button" class="primary">Start</button>
+          <button id="motorStop" type="button" data-command="MotorStop" class="danger">Stop (brake)</button>
+          <button id="motorCoast" type="button" data-command="MotorCoast">Coast</button>
+        </div>
+        <div class="customPulse">
+          <label for="motorDuration">Motor pulse (ms)</label>
+          <input id="motorDuration" type="number" min="1" value="250" inputmode="numeric">
+          <button id="motorPulse" type="button" class="primary">Pulse</button>
+        </div>
+      </fieldset>
       <button id="useHourLimit">Remove saved time limits</button>
       <p class="safetyNote">Arming never activates the output. Every dispense command has a hard time limit, and STOP ALL cancels the output and disarms the controller.</p>
     </section><div class="presetHead"><span class="kicker">Quick access</span><h2>Command presets</h2><p class="hint">Choose to prefill. Review, then send.</p></div><div class="presetSearch"><label class="fieldLabel" for="presetSearch">Find a preset</label><input id="presetSearch" type="search" placeholder="Name or command…" autocomplete="off" spellcheck="false"><span id="presetCount" class="hint" role="status"></span><p id="presetEmpty" class="hint" hidden>No matching presets. Try a command name such as Status.</p></div><div id="presetGroups"></div></aside></div>
@@ -61,6 +80,26 @@
         <label>Initial delay ms<input id="routineDelay" type="number" min="0" value="0"></label>
         <label>Repeats<input id="routineRepeats" type="number" min="1" value="6"></label>
       </div>
+      <label id="routineOutputChoice" class="fieldLabel" hidden>Routine output
+        <select id="routineOutput">
+          <option value="gpio">GPIO outputs</option>
+          <option value="motorPulse">DRV8871 repeated pulses</option>
+          <option value="motorSteady">DRV8871 steady run</option>
+        </select>
+      </label>
+      <fieldset id="motorRoutineSettings" class="motorControls" hidden>
+        <legend>Motor timing</legend>
+        <label id="routineMotorChannelField" hidden>Motor
+          <select id="routineMotorChannel"><option value="1">Motor 1</option></select>
+        </label>
+        <div class="routineBuilder">
+          <label>On time (ms)<input id="routineMotorOn" type="number" min="1" value="200"></label>
+          <label id="routineMotorOffField">Off time (ms)<input id="routineMotorOff" type="number" min="1" value="800"></label>
+          <label>Drive level (1–255)<input id="routineMotorLevel" type="number" min="1" max="255" value="128"></label>
+        </div>
+        <p class="hint">The motor coasts at the end of each pulse. A steady run uses one on period.</p>
+      </fieldset>
+      <div id="gpioRoutineSettings">
       <p class="hint">Outputs run one at a time in the order below. Each delay starts after that output finishes dispensing, including the last output before the next repeat.</p>
       <div id="outputRows" class="outputRows">
         <div class="outputRow">
@@ -75,6 +114,7 @@
         <button id="saveOutputs">Save output pins</button>
       </div>
       <p class="hint">Disarm to save pin changes. Build + save stores the dispense times and delays in the named routine. Manual pulse buttons use output 1. Stop controls turn off every output.</p>
+      </div>
       <label class="hint"><input id="routineContinuous" type="checkbox"> Repeat until stopped</label>
       <div class="inlineCommands">
         <button id="saveRoutine">Build + save</button>

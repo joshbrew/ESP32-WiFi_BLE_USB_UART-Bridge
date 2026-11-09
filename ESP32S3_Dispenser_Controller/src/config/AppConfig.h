@@ -59,6 +59,22 @@
   #endif
 #endif
 
+#ifndef DRONE_CFG_ENABLE_DRV8871
+#define DRONE_CFG_ENABLE_DRV8871 0
+#endif
+#ifndef DRONE_CFG_DRV8871_IN1_PIN
+#define DRONE_CFG_DRV8871_IN1_PIN 6
+#endif
+#ifndef DRONE_CFG_DRV8871_IN2_PIN
+#define DRONE_CFG_DRV8871_IN2_PIN 7
+#endif
+#ifndef DRONE_CFG_DRV8871_MOTOR_PINS
+#define DRONE_CFG_DRV8871_MOTOR_PINS { {DRONE_CFG_DRV8871_IN1_PIN, DRONE_CFG_DRV8871_IN2_PIN} }
+#endif
+#ifndef DRONE_CFG_DRV8871_MAX_RUN_MS
+#define DRONE_CFG_DRV8871_MAX_RUN_MS 30000UL
+#endif
+
 #ifndef DRONE_CFG_DISPENSER_PIN
 #if DRONE_CFG_BOARD_ESP32_S3
 #define DRONE_CFG_DISPENSER_PIN 4
@@ -257,6 +273,12 @@ constexpr bool DEFAULT_PRODUCTION_MODE = true;
 // The board's selected GPIO controls the external switch; it never carries the gel
 // signal itself. The external circuit should hold the switch inactive while
 // the ESP32 is reset or unpowered.
+constexpr int PIN_DRV8871_IN1 = DRONE_CFG_DRV8871_IN1_PIN;
+constexpr int PIN_DRV8871_IN2 = DRONE_CFG_DRV8871_IN2_PIN;
+struct Drv8871Pins { int in1; int in2; };
+constexpr Drv8871Pins DRV8871_MOTORS[] = DRONE_CFG_DRV8871_MOTOR_PINS;
+constexpr size_t DRV8871_MOTOR_COUNT = sizeof(DRV8871_MOTORS) / sizeof(DRV8871_MOTORS[0]);
+constexpr uint32_t DRV8871_MAX_RUN_MS = DRONE_CFG_DRV8871_MAX_RUN_MS;
 constexpr int PIN_DISPENSER = DRONE_CFG_DISPENSER_PIN;
 constexpr bool DISPENSER_ACTIVE_HIGH = DRONE_CFG_DISPENSER_ACTIVE_HIGH != 0;
 constexpr uint32_t DISPENSER_DEFAULT_PULSE_MS = DRONE_CFG_DISPENSER_DEFAULT_PULSE_MS;
@@ -476,6 +498,43 @@ static_assert(!ENABLE_STATUS_INDICATORS || !STATUS_USE_RGB ||
 static_assert(DRONE_CFG_STATUS_RGB_BRIGHTNESS >= 1 && DRONE_CFG_STATUS_RGB_BRIGHTNESS <= 255,
   "RGB brightness must be 1..255.");
 
+constexpr bool isDrv8871Pin(int pin) {
+  if (!DRONE_CFG_ENABLE_DRV8871) return false;
+  for (const auto &motor : DRV8871_MOTORS) {
+    if (pin == motor.in1 || pin == motor.in2) return true;
+  }
+  return false;
+}
+
+constexpr bool isAvailableDrv8871Pin(int pin) {
+  return isConservativePayloadOutputPin(pin) && !isStatusIndicatorPin(pin) &&
+    pin != PIN_DISPENSER && pin != PIN_DISPENSER_INTERLOCK &&
+    (!ENABLE_AUX_UART || (pin != AUX_UART_RX_PIN && pin != AUX_UART_TX_PIN));
+}
+
+static_assert(!DRONE_CFG_ENABLE_DRV8871 || ENABLE_DRONE_DISPENSER_ADDON,
+  "DRV8871 requires the dispenser hardware profile.");
+constexpr bool validDrv8871Pins() {
+  for (size_t i = 0; i < DRV8871_MOTOR_COUNT; ++i) {
+    const auto &motor = DRV8871_MOTORS[i];
+    if (!isAvailableDrv8871Pin(motor.in1) || !isAvailableDrv8871Pin(motor.in2) || motor.in1 == motor.in2) {
+      return false;
+    }
+    for (size_t j = 0; j < i; ++j) {
+      const auto &earlier = DRV8871_MOTORS[j];
+      if (motor.in1 == earlier.in1 || motor.in1 == earlier.in2 ||
+          motor.in2 == earlier.in1 || motor.in2 == earlier.in2) return false;
+    }
+  }
+  return true;
+}
+
+static_assert(DRV8871_MOTOR_COUNT >= 1 && DRV8871_MOTOR_COUNT <= 4, "Configure 1 to 4 DRV8871 pin pairs.");
+static_assert(!DRONE_CFG_ENABLE_DRV8871 || validDrv8871Pins(),
+  "DRV8871 inputs need distinct GPIOs free of payload, interlock, LED and auxiliary UART ownership.");
+static_assert(!DRONE_CFG_ENABLE_DRV8871 || (DRV8871_MAX_RUN_MS > 0 && DRV8871_MAX_RUN_MS <= 2147483647UL),
+  "DRV8871 maximum runtime must be 1..2147483647 ms.");
+
 static_assert(
   !ENABLE_DRONE_DISPENSER_ADDON ||
     DRONE_CFG_DISPENSER_ACTIVE_HIGH == 0 || DRONE_CFG_DISPENSER_ACTIVE_HIGH == 1,
@@ -661,7 +720,7 @@ constexpr BaseType_t NETWORK_TASK_CORE = 0;
 constexpr TickType_t NETWORK_TASK_DELAY_TICKS = 1;
 
 constexpr bool isAvailableAddonPin(int pin) {
-  return isConservativePayloadOutputPin(pin) && !isStatusIndicatorPin(pin) &&
+  return isConservativePayloadOutputPin(pin) && !isStatusIndicatorPin(pin) && !isDrv8871Pin(pin) &&
     (!ENABLE_DRONE_DISPENSER_ADDON || (pin != PIN_DISPENSER && pin != PIN_DISPENSER_INTERLOCK)) &&
     (!ENABLE_STEPPER_DAC_ADDON || (pin != PIN_STEPPER_IN1 && pin != PIN_STEPPER_IN2 &&
       pin != PIN_STEPPER_IN3 && pin != PIN_STEPPER_IN4 && pin != PIN_DIGITAL_OUTPUT));

@@ -14,7 +14,12 @@ const elements = {};
 for (const id of [
   "buildVersion", "liveDot", "liveText", "payloadState", "payloadMeta",
   "armDispenser", "disarmDispenser", "pulseDuration", "dispensePulse",
+  "motorControls", "motorState", "motorLevel", "motorLevelValue", "motorStart", "motorStop",
+  "motorCoast", "motorDuration", "motorPulse", "motorChannel", "motorChannelField",
+  "routineMotorChannel", "routineMotorChannelField",
   "stopDispense", "routineName", "routinePulse", "routineGap", "outputRows", "outputPin", "addOutput", "singleOutput", "saveOutputs",
+  "routineOutputChoice", "routineOutput", "motorRoutineSettings", "gpioRoutineSettings",
+  "routineMotorOn", "routineMotorOff", "routineMotorOffField", "routineMotorLevel",
   "routineRepeats", "routineContinuous", "routineDelay", "savedRoutines", "saveRoutine", "runRoutine", "stopRoutine", "useHourLimit",
   "wifiRole", "wifiSsid", "wifiPassword", "wifiProtocol", "wifiOpenNetwork", "saveWifi", "wifiSetupStatus",
   "geoPoints", "geoSource", "geoStatus", "saveGeo", "startGeo", "stopGeo", "geoTestPosition", "geoTestSend", "geoTestStream", "geoPhoneGps",
@@ -262,7 +267,7 @@ function updateActions() {
   for (const item of document.querySelectorAll("[data-command], option[data-requires]")) {
     const command = item.dataset.command || item.value || "";
     let disabled = state.busy || !compiled(item.dataset.requires);
-    if (/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm)$/i.test(command)) disabled = false;
+    if (/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm|MotorStop|MotorCoast)$/i.test(command)) disabled = false;
     if (/^Arm$/i.test(command) && dispenser.armed && !dispenser.faulted) disabled = true;
     if (/^Dispense:/i.test(command) && (!dispenser.armed || dispenser.faulted || dispenser.dispensing)) disabled = true;
     if (routine.active && (/^(?:Arm|DispenserArm)$/i.test(command) || /^Dispense:/i.test(command))) disabled = true;
@@ -271,6 +276,8 @@ function updateActions() {
     item.disabled = disabled;
   }
   elements.dispensePulse.disabled = state.busy || !dispenser.armed || dispenser.faulted || dispenser.dispensing || routine.active || geo.active;
+  updateMotorControls(dispenser, routine.active || geo.active);
+  updateRoutineOutput(dispenser.motor);
   elements.saveRoutine.disabled = state.busy || routine.active || geo.active || addon.dispenser !== true;
   const editingOutputs = state.busy || routine.active || geo.active;
   elements.addOutput.disabled = editingOutputs || elements.outputRows.children.length >= (dispenser.outputsCapacity || 8);
@@ -290,6 +297,69 @@ function updateActions() {
   elements.saveWifi.disabled = state.busy || routine.active || geo.active;
   if (elements.commandPreset.selectedOptions[0]?.disabled) elements.commandPreset.selectedIndex = 0;
   syncStationPresets();
+}
+
+function updateMotorPicker(select, field, motor) {
+  const channels = motor.channels || [[1, motor.in1, motor.in2]];
+  field.hidden = channels.length <= 1;
+  const signature = JSON.stringify(channels.map(([number, in1, in2]) => [number, in1, in2]));
+  if (select.dataset.pinPairs === signature) return;
+  const previous = select.value;
+  select.replaceChildren();
+  for (const [number, in1, in2] of channels) {
+    const option = document.createElement("option");
+    option.value = number;
+    option.textContent = `Motor ${number} · GPIO${in1}/${in2}`;
+    select.append(option);
+  }
+  if (channels.some(([number]) => String(number) === previous)) select.value = previous;
+  select.dataset.pinPairs = signature;
+}
+
+function motorSuffix(select) {
+  return Number(select.value) > 1 ? `,${select.value}` : "";
+}
+
+function updateRoutineOutput(motor) {
+  elements.routineOutputChoice.hidden = !motor;
+  if (!motor) elements.routineOutput.value = "gpio";
+  const kind = elements.routineOutput.value;
+  const steady = kind === "motorSteady";
+  elements.gpioRoutineSettings.hidden = kind !== "gpio";
+  elements.motorRoutineSettings.hidden = kind === "gpio";
+  elements.routineMotorOffField.hidden = steady;
+  elements.routineContinuous.disabled = steady;
+  elements.routineRepeats.disabled = steady || elements.routineContinuous.checked;
+  if (motor) {
+    elements.routineMotorOn.max = motor.maxRunMs;
+    updateMotorPicker(elements.routineMotorChannel, elements.routineMotorChannelField, motor);
+  }
+}
+
+function updateMotorControls(dispenser, automated) {
+  const motor = dispenser.motor;
+  elements.motorControls.hidden = !motor;
+  if (!motor) return;
+
+  updateMotorPicker(elements.motorChannel, elements.motorChannelField, motor);
+  const driving = motor.mode === "drive";
+  const activeMotor = motor.activeMotor || 1;
+  const drivingSelected = driving && Number(elements.motorChannel.value) === activeMotor;
+  const armed = dispenser.armed && !dispenser.faulted && dispenser.interlockOpen !== false;
+  const canDrive = armed && !state.busy && !automated;
+  const canStart = canDrive && !dispenser.dispensing && Number(elements.motorLevel.value) > 0;
+  elements.motorStart.disabled = !canStart;
+  elements.motorPulse.disabled = !canStart;
+  elements.motorStop.disabled = false;
+  elements.motorStop.textContent = automated ? "Stop routine" : "Stop (brake)";
+  elements.motorCoast.disabled = false;
+  elements.motorLevel.disabled = drivingSelected && !canDrive;
+  elements.motorDuration.max = motor.maxRunMs;
+  const status = driving
+    ? `Driving at ${motor.level}/255 · ${dispenser.remainingMs} ms remaining`
+    : `${motor.mode === "brake" ? "Braking" : "Coasting"} · max run ${motor.maxRunMs} ms`;
+  elements.motorState.textContent = motor.channels?.length > 1 && motor.mode !== "coast"
+    ? `${status} · motor ${activeMotor}` : status;
 }
 
 function renderTransport() {
@@ -329,7 +399,7 @@ function renderState(data) {
   elements.payloadState.textContent = payload;
   elements.payloadState.className = `stateBadge ${dispenser.faulted ? "fault" : dispenser.dispensing ? "active" : dispenser.armed ? "armed" : "safe"}`;
   elements.payloadMeta.textContent = addon.dispenser
-    ? `${(dispenser.pins || [dispenser.pin]).map(pin => `GPIO${pin}`).join(", ")} · ${dispenser.dispensing ? `GPIO${dispenser.activePin ?? dispenser.pin} ACTIVE` : "outputs inactive"} · max pulse ${dispenser.maxPulseMs ? `${dispenser.maxPulseMs} ms` : "unlimited"} · pulse ${dispenser.remainingMs || 0} ms remaining · arm ${dispenser.armTimeoutMs ? `${dispenser.armRemainingMs || 0} ms remaining` : "no expiry"}${dispenser.interlockConfigured ? ` · interlock ${dispenser.interlockOpen ? "open" : "CLOSED"}` : ""}`
+    ? `${(dispenser.pins || [dispenser.pin]).map(pin => `GPIO${pin}`).join(", ")} · ${dispenser.dispensing ? (dispenser.motor?.mode === "drive" ? "DRV8871 ACTIVE" : `GPIO${dispenser.activePin ?? dispenser.pin} ACTIVE`) : "outputs inactive"} · max pulse ${dispenser.maxPulseMs ? `${dispenser.maxPulseMs} ms` : "unlimited"} · pulse ${dispenser.remainingMs || 0} ms remaining · arm ${dispenser.armTimeoutMs ? `${dispenser.armRemainingMs || 0} ms remaining` : "no expiry"}${dispenser.interlockConfigured ? ` · interlock ${dispenser.interlockOpen ? "open" : "CLOSED"}` : ""}`
     : "This build uses the optional advanced stepper/DAC hardware profile.";
   initializeOutputs(dispenser);
   for (const input of [elements.pulseDuration, ...elements.outputRows.querySelectorAll(".outputPulse")]) {
@@ -442,7 +512,14 @@ function writeBle(text, characteristic = state.bleRx) {
 async function runCommand(body, fast = false) {
   const clean = String(body || "").trim();
   if (!clean) throw new Error("Empty command");
-  if (/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm)$/i.test(clean)) { stopTestGps(); fast = true; ++state.commandGeneration; }
+  if (/^(MotorStop|MotorCoast)$/i.test(clean)) {
+    fast = true;
+    ++state.commandGeneration;
+  } else if (/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm)$/i.test(clean)) {
+    stopTestGps();
+    fast = true;
+    ++state.commandGeneration;
+  }
   log(`TX ${usingBle() ? "BLE" : "HTTP"} ${clean.split("\n").map(redact).join(" | ")}`, "send");
   if (usingBle()) {
     await writeBle(clean + "\n");
@@ -705,12 +782,29 @@ function routineName() {
 }
 async function saveRoutinePreset() {
   const name = routineName();
-  const maxPulse = Number(state.latest?.dispenser?.maxPulseMs) || 4294967295;
+  const dispenser = state.latest?.dispenser;
+  const maxPulse = Number(dispenser?.maxPulseMs) || 4294967295;
   const delay = readInteger(elements.routineDelay, 0, 4294967295, "Initial delay");
+  const kind = elements.routineOutput.value;
+  const steady = kind === "motorSteady";
+  const repeats = steady ? 1 : elements.routineContinuous.checked ? "FOREVER" :
+    readInteger(elements.routineRepeats, 1, 4294967295, "Repeats");
+  if (kind !== "gpio") {
+    const on = readInteger(elements.routineMotorOn, 1, dispenser.motor.maxRunMs, "Motor on time");
+    const off = steady ? 0 : readInteger(elements.routineMotorOff, 1, 4294967295, "Motor off time");
+    const level = readInteger(elements.routineMotorLevel, 1, 255, "Motor drive level");
+    await commandBatches([
+      `RoutineCreate:${name}`,
+      `RoutineAdd:${name}:START_WAIT:${delay}`,
+      `RoutineAdd:${name}:MOTOR:${on},${off},${level}${motorSuffix(elements.routineMotorChannel)}`,
+      `RoutineRepeat:${name}:${repeats}`,
+      `RoutineSave:${name}`
+    ]);
+    return;
+  }
   const outputs = readOutputs(maxPulse);
   const configured = state.latest?.dispenser?.pins || [state.latest?.dispenser?.pin ?? 26];
   if (outputs.some(row => !configured.includes(row.pin)) || outputs[0].pin !== configured[0]) throw new Error("Disarm and Save output pins before building this routine");
-  const repeats = elements.routineContinuous.checked ? "FOREVER" : readInteger(elements.routineRepeats, 1, 4294967295, "Repeats");
   const commands = [
     `RoutineCreate:${name}`,
     `RoutineAdd:${name}:START_WAIT:${delay}`,
@@ -770,6 +864,17 @@ async function saveOutputPins() {
 async function runNamedRoutine() {
   await runCommand(`RoutineRun:${routineName()}`);
 }
+async function runMotor(pulse) {
+  const level = readInteger(elements.motorLevel, 1, 255, "Motor level");
+  if (pulse) {
+    const max = Number(state.latest?.dispenser?.motor?.maxRunMs) || 1;
+    const duration = readInteger(elements.motorDuration, 1, max, "Motor pulse");
+    await runCommand(`MotorPulse:${duration},${level}${motorSuffix(elements.motorChannel)}`);
+  } else {
+    await runCommand(`MotorStart:${level}${motorSuffix(elements.motorChannel)}`);
+  }
+}
+
 async function customDispense() {
   const max = Number(state.latest?.dispenser?.maxPulseMs) || 4294967295;
   const duration = readInteger(elements.pulseDuration, 1, max, "Pulse");
@@ -781,12 +886,18 @@ function renderSavedRoutines(library) {
   if (elements.savedRoutines.dataset.signature === signature) return;
   elements.savedRoutines.dataset.signature = signature;
   elements.savedRoutines.replaceChildren();
-  for (const [name, delay, pulse, gap, repeats, saved, steps, outputs] of library) {
+  for (const [name, delay, pulse, gap, repeats, saved, steps, outputs, motorSteps, motorLevel, motorNumber = 1] of library) {
     const row = document.createElement("div"); row.className = "savedRoutine";
     const label = document.createElement("div"); label.textContent = `${name}${saved ? "" : " (unsaved)"}`;
     const details = document.createElement("small");
     const repetition = repeats ? `${repeats} repeats` : "until stopped";
     details.textContent = outputs ? `${outputs} outputs in order · initial delay ${delay} ms · ${repetition}` : pulse ? `Delay ${delay} ms · on ${pulse} ms / off ${gap} ms · ${repetition}` : `${steps} steps · ${repetition}`;
+    if (motorSteps && motorLevel) {
+      const timing = gap ? `on ${pulse} ms / off ${gap} ms · ${repetition}` : `steady ${pulse} ms`;
+      details.textContent = `DRV8871 motor ${motorNumber} · ${motorLevel}/255 · delay ${delay} ms · ${timing}`;
+    } else if (motorSteps) {
+      details.textContent = `${motorSteps} motor step(s) · ${outputs} timed outputs · ${repetition}`;
+    }
     label.append(details); row.append(label);
     if (saved) {
       const button = document.createElement("button"); button.textContent = `Run ${name}`; button.className = "primary";
@@ -900,7 +1011,7 @@ document.addEventListener("click", event => {
   const button = event.target.closest("button[data-command]");
   if (!button) return;
   const command = button.dataset.command;
-  if (/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm)$/i.test(command)) {
+  if (/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm|MotorStop|MotorCoast)$/i.test(command)) {
     runCommand(command, true).catch(error => log(error.message, "error"));
     return;
   }
@@ -921,6 +1032,25 @@ elements.commandInput.addEventListener("keydown", event => {
 elements.sendCommands.addEventListener("click", sendInput);
 elements.stopAll.addEventListener("click", () => runCommand("StopAll", true).catch(error => log(error.message, "error")));
 elements.dispensePulse.addEventListener("click", () => withLock(customDispense));
+elements.motorStart.addEventListener("click", () => withLock(() => runMotor(false)));
+elements.motorPulse.addEventListener("click", () => withLock(() => runMotor(true)));
+elements.motorLevel.addEventListener("input", () => {
+  elements.motorLevelValue.value = elements.motorLevel.value;
+  renderTransport();
+});
+elements.motorChannel.addEventListener("change", () => {
+  const motor = state.latest?.dispenser?.motor;
+  const selected = motor?.channels?.find(([number]) => number === Number(elements.motorChannel.value));
+  elements.motorLevel.value = selected?.[3] ?? motor?.level ?? 128;
+  elements.motorLevelValue.value = elements.motorLevel.value;
+  renderTransport();
+});
+elements.motorLevel.addEventListener("change", () => {
+  const motor = state.latest?.dispenser?.motor;
+  if (motor?.mode === "drive" && Number(elements.motorChannel.value) === (motor.activeMotor || 1)) {
+    withLock(() => runCommand(`MotorLevel:${elements.motorLevel.value}${motorSuffix(elements.motorChannel)}`));
+  }
+});
 elements.saveRoutine.addEventListener("click", () => withLock(saveRoutinePreset));
 elements.outputRows.addEventListener("input", () => { elements.outputRows.dataset.edited = "true"; });
 elements.addOutput.addEventListener("click", () => {
@@ -935,7 +1065,8 @@ elements.singleOutput.addEventListener("click", () => {
   elements.outputRows.dataset.edited = "true"; updateActions();
 });
 elements.saveOutputs.addEventListener("click", () => withLock(saveOutputPins));
-elements.routineContinuous.addEventListener("change", () => { elements.routineRepeats.disabled = elements.routineContinuous.checked; });
+elements.routineOutput.addEventListener("change", () => updateRoutineOutput(state.latest?.dispenser?.motor));
+elements.routineContinuous.addEventListener("change", () => updateRoutineOutput(state.latest?.dispenser?.motor));
 elements.runRoutine.addEventListener("click", () => withLock(runNamedRoutine));
 elements.useHourLimit.addEventListener("click", () => withLock(async () => {
   await runCommand("Disarm", true); await sleep(250);
@@ -1033,7 +1164,7 @@ function installRemoteConsole() {
   }
 
   function relayAlive(){return Date.now()-Math.max(lastFrame,state.lastContact||0)<12000}
-  function priorityStop(body){return /^(StopAll|Disarm|DispenserDisarm|DispenserOff|RoutineStop|GeoStop|DispenseStop|GPIO26:OFF)$/i.test(String(body).trim())}
+  function priorityStop(body){return /^(StopAll|Disarm|DispenserDisarm|DispenserOff|RoutineStop|GeoStop|DispenseStop|GPIO26:OFF|MotorStop|MotorCoast)$/i.test(String(body).trim())}
   function streamLive(){return socket?.readyState===1&&lastFrame>0&&Date.now()-lastFrame<12000}
   function connectionLabel(){
     const uplink=state.latest?.uplink;
@@ -1060,7 +1191,10 @@ function installRemoteConsole() {
     const waiting=!Number.isFinite(state.latest?.uplink?.ageMs);
     elements.sendCommands.disabled=state.busy||offline||stopping||waiting;
     for(const button of document.querySelectorAll("[data-command]"))if(offline||((stopping||waiting)&&!priorityStop(button.dataset.command)))button.disabled=true;
-    if(offline||stopping||waiting)for(const id of ["dispensePulse","runRoutine","startGeo","saveRoutine","saveOutputs","saveGeo","saveWifi","useHourLimit"]){const button=document.getElementById(id);if(button)button.disabled=true}
+    if ((offline || stopping || waiting) && state.latest?.dispenser?.motor?.mode === "drive") {
+      elements.motorLevel.disabled = true;
+    }
+    if(offline||stopping||waiting)for(const id of ["dispensePulse","motorStart","motorPulse","runRoutine","startGeo","saveRoutine","saveOutputs","saveGeo","saveWifi","useHourLimit"]){const button=document.getElementById(id);if(button)button.disabled=true}
     if(waiting&&document.getElementById("payloadState")){
       elements.payloadState.textContent="UNKNOWN";elements.payloadState.className="stateBadge";
       elements.payloadMeta.textContent="Waiting for current controller state. Stop all remains available when connected.";

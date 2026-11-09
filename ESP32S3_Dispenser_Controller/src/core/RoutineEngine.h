@@ -45,7 +45,7 @@ class RoutineEngine {
     COMMAND = 2,
     WAIT_IDLE = 3,
     START_WAIT = 4,
-    PIN_OUTPUT = 5 // One pin's pulse, followed by its gap; one stored step.
+    TIMED_OUTPUT = 5 // GPIO or motor pulse followed by its gap, in one stored step.
   };
 
   struct StoredStep {

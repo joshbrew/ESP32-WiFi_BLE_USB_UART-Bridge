@@ -11,6 +11,7 @@ bool startsWithIgnoreCase(const String &value, const char *prefix);
 bool parseOnOff(String value, bool &result);
 bool parseLong(String value, long &result);
 bool parseUnsigned32(String value, uint32_t &result);
+bool parseMotorPulse(const String &command, uint32_t &duration, uint32_t &level, uint32_t *motor = nullptr);
 bool parseDispense(const String &command, int &pin, uint32_t &duration);
 bool parseFloat(String value, float &result);
 String boolWord(bool value);

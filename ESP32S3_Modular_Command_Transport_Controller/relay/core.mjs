@@ -3,7 +3,7 @@ import {createHash,randomUUID} from 'node:crypto';
 
 const failure=(status,message)=>Object.assign(new Error(message),{status});
 const uint32=value=>Number.isInteger(value)&&value>=0&&value<=0xffffffff;
-export const isPriorityStop=body=>/^(StopAll|Disarm|DispenserDisarm|DispenserOff|RoutineStop|GeoStop|DispenseStop|GPIO26:OFF)$/i.test(body.trim());
+export const isPriorityStop=body=>/^(StopAll|Disarm|DispenserDisarm|DispenserOff|RoutineStop|GeoStop|DispenseStop|GPIO26:OFF|MotorStop|MotorCoast)$/i.test(body.trim());
 export class RelayCore extends EventEmitter {
   constructor({device,publish,now=Date.now,ttl=3500}){
     super();if(!/^[a-zA-Z0-9_-]{1,40}$/.test(device))throw Error('Invalid DEVICE_ID');

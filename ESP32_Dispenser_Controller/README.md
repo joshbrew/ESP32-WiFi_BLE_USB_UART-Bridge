@@ -384,3 +384,30 @@ node web/build_web_assets.mjs --check
   current phase.
 - Use `StopAll` as the universal software-safe command. Maintain an independent
   hardware inhibit for actual flight operations.
+
+## Optional Adafruit DRV8871 brushed DC motors
+
+Set `DRONE_CFG_ENABLE_DRV8871` to `1` in `QuickConfig.h`. Default wiring is
+**GPIO32 → IN1 and GPIO33 → IN2**. Join controller GND, driver GND and motor-supply
+negative. Connect the motor across OUT1/OUT2 and a separate motor-rated supply
+to VM/GND within the breakout's 6.5–45 V range. The level is 8-bit PWM duty
+cycle. The breakout's ILIM resistor sets the hardware current limit.
+Configure one to four IN1/IN2 pairs in `DRONE_CFG_DRV8871_MOTOR_PINS`. Each
+motor uses its own breakout and two GPIOs. Pin pairs are numbered in list order
+starting at 1. Keep that order when rebuilding to preserve saved motor targets.
+The console shows motor selectors when more than one pair is configured.
+[Adafruit wiring guide](https://learn.adafruit.com/adafruit-drv8871-brushed-dc-motor-driver-breakout/pinouts)
+
+Arm the dispenser, select a drive level, and press **Start** or **Pulse** in
+the DRV8871 panel next to the GPIO pulse controls. While driving, releasing the
+slider applies the new level without extending the run. **Stop (brake)** brakes
+a running motor. **Coast**, timer expiry, Disarm, interlock closure and Stop All
+release the motor. GPIO and motor pulses share the dispenser's single active
+output slot. The motor cap defaults to 30 seconds and is configurable via
+`DRONE_CFG_DRV8871_MAX_RUN_MS`. A shorter payload pulse limit or remaining
+arm window still applies. In the routine builder, choose **DRV8871 repeated
+pulses** for an on/off cycle or **DRV8871 steady run** for a single bounded run.
+Build + save stores the drive level with the timing. A positive off period
+allows repeat-until-stopped operation when the arm window is unlimited.
+Arm before running the saved routine. Stop Routine cancels future pulses and
+releases the motor. The S3 hosted console uses the same builder.

@@ -29,7 +29,8 @@ bool isPriorityStop(const char *body) {
   return line.equalsIgnoreCase("StopAll") || line.equalsIgnoreCase("Disarm") ||
     line.equalsIgnoreCase("DispenserDisarm") || line.equalsIgnoreCase("DispenserOff") ||
     line.equalsIgnoreCase("RoutineStop") || line.equalsIgnoreCase("GeoStop") ||
-    line.equalsIgnoreCase("DispenseStop") || line.equalsIgnoreCase("GPIO26:OFF");
+    line.equalsIgnoreCase("DispenseStop") || line.equalsIgnoreCase("GPIO26:OFF") ||
+    line.equalsIgnoreCase("MotorStop") || line.equalsIgnoreCase("MotorCoast");
 }
 }
 

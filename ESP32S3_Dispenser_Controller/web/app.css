@@ -255,3 +255,13 @@ code { color: var(--accent); }
 /* Remote checks use a compact disclosure, without taking space from presets. */
 .connectionMetrics{flex-shrink:0}.connectionDetails{flex-shrink:0;margin:4px 0 8px;border-bottom:1px solid var(--line);padding-bottom:5px}.connectionDetails summary{font-size:.71rem;min-height:27px}.connectionDetails[open] summary{margin-bottom:6px}.connectionBody{max-height:185px;overflow:auto;padding:0 2px 5px}.connectionRow{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px;padding:5px 0;border-top:1px solid var(--line);font-size:.7rem}.connectionRow>span{color:var(--muted)}.connectionRow strong{font-weight:500;overflow-wrap:anywhere}.connectionBody>.hint{font-size:.65rem;margin:7px 0}.connectionActions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.connectionActions button{font-size:.68rem;padding:5px 8px}.connectionActions .hint{font-size:.65rem;flex:1;min-width:120px}
 @media(max-width:390px){.connectionRow{grid-template-columns:87px minmax(0,1fr);font-size:.66rem}.connectionBody{max-height:165px}}
+
+.motorControls{min-width:0;margin:10px 0;padding:8px;border:1px solid var(--border,#3c505d);border-radius:8px}
+.motorControls[hidden]{display:none}
+.motorControls legend{padding:0 4px}
+.motorControls input[type=range]{width:100%;padding:0;accent-color:var(--accent,#47d7be)}
+.motorControls .payloadControls{grid-template-columns:repeat(3,minmax(0,1fr))}
+
+#routineOutputChoice[hidden],#routineMotorOffField[hidden],#gpioRoutineSettings[hidden]{display:none}
+
+#motorChannelField[hidden],#routineMotorChannelField[hidden]{display:none}
