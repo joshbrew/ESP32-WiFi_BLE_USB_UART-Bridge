@@ -5,6 +5,11 @@
 #include "Preferences.h"
 #include <cassert>
 #include <iostream>
+#include <type_traits>
+
+// TransportHub and the sketch share this raw MAVLink callback contract.
+static_assert(std::is_same_v<MavlinkReceiver,
+  void (*)(void *, const uint8_t *, size_t, uint32_t)>);
 
 static void command(DispenserAddon &addon, const String &line) {
   assert(addon.handleCommand(line, CommandSource::USB, "board-test"));

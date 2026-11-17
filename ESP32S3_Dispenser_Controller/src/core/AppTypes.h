@@ -115,5 +115,6 @@ using BatchCommandSubmitter = bool (*)(
 );
 
 using StateProvider = String (*)(void *context);
+using MavlinkReceiver = void (*)(void *context, const uint8_t *data, size_t length, uint32_t receivedAt);
 
 #endif  // ESP32_STEPPER_DUAL_DAC_APPTYPES_H

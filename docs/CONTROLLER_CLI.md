@@ -99,7 +99,7 @@ Use `-ArduinoCliPath`, `-EsptoolPath` or `-ToolsDirectory` for an explicit locat
 
 The complete set includes the matching sketch `.ino.bin`, `.ino.bootloader.bin`, `.ino.partitions.bin`, `boot_app0.bin` when OTA metadata is present, and `build.options.json` when available. You can also use Arduino IDE's **Export Compiled Binary**. The script can obtain a missing OTA initialization image from the matching installed core.
 
-Automatic build selection prefers `precompiled/<variant>/`, then the newest matching completed sketch `build/` export or Arduino IDE cache under `%LOCALAPPDATA%\arduino\sketches`. `-BuildDirectory` overrides that search. The binary date, original sketch path, saved board settings and write offsets are displayed. Source edits newer than the binary are reported; use `compile` when ready to include them.
+Automatic build selection prefers `precompiled/<variant>/`, then the newest compatible completed sketch `build/` export or Arduino IDE cache under `%LOCALAPPDATA%\arduino\sketches`. `-BuildDirectory` overrides that search. The binary date, original sketch path, saved board settings and write offsets are displayed. Source edits newer than the binary are reported; use `compile` when ready to include them.
 
 Default transfer speed is 921600 with compression. `-SkipUnchanged` uses esptool 5.3+ to compare existing flash contents before writing. Lower `-Baud` if the cable/bridge is unreliable. A flash dry run prints the plan without opening serial or asking for confirmation; COM1 is a placeholder if no port was supplied. Use `ports` for real discovery.
 
@@ -124,3 +124,23 @@ References: [Arduino CLI installation](https://arduino.github.io/arduino-cli/1.5
 ## Home server setup
 
 `controller home-setup [-Variant s3-dispenser|s3-transport] [-DryRun]` launches the Windows home-host wizard. **Setup Home Access.cmd** is its double-click entry point. It installs/reuses WSL 2 + Docker Desktop, creates/reuses TLS/credentials, runs the broker/web app locally, offers Cloudflare DNS and modem provisioning, and prints the router forwarding plan. No compile or flash occurs. See [home hosting](HOME_HOSTING.md). Detailed options (`-Domain`, `-PublicAddress`, `-SkipModem`, etc.) are available via `tools/home_setup.ps1`.
+
+## S3 cache rejected with PSRAM=enabled
+
+For ESP32S3 Dev Module, `PSRAM=enabled` is the **QSPI PSRAM** selection.
+The ESP32-S3-DevKitC-1 N16R8 uses **OPI PSRAM**, recorded as `PSRAM=opi`.
+Changing an Arduino menu setting applies to the next build. Existing binaries
+retain their compiled memory settings.
+
+Automatic discovery checks complete cache/export folders from newest to oldest
+and skips incompatible builds. A saved `precompiled/<variant>` set takes
+precedence and is validated before flashing. An explicit `-BuildDirectory`
+is validated as supplied.
+
+If no compatible existing build is available, select **ESP32S3 Dev Module**,
+**Flash Size 16MB**, **PSRAM OPI PSRAM**, **CPU 240MHz**, **Flash Mode QIO 80MHz**
+and the README's 16MB partition scheme, then export a build once.
+The CLI's equivalent is `controller compile -Variant s3-dispenser`.
+After that, `controller flash -Variant s3-dispenser` reuses the saved set.
+A CPU value of 80MHz alone is accepted by the flasher. In the reported error,
+the QSPI/OPI choice is the mismatch.

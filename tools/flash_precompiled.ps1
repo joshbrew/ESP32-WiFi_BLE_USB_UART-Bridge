@@ -117,7 +117,23 @@ function Find-PrecompiledBuild([string]$VariantName,[string]$Root=$script:Projec
         (Test-Path -LiteralPath (Join-Path $_.DirectoryName ($definition.Sketch+'.ino.partitions.bin')))
     } | Sort-Object LastWriteTimeUtc -Descending)
     if ($complete.Count -eq 0) { throw "No completed build found for $($definition.Sketch). Run controller compile -Variant $VariantName, export in Arduino IDE, or pass -BuildDirectory." }
-    return $complete[0].DirectoryName
+    $rejected = @()
+    foreach ($candidate in $complete) {
+        try {
+            $plan = Get-FlashPlan $VariantName $candidate.DirectoryName $Root
+            if ($rejected.Count) {
+                Write-Host "Using a compatible existing build after skipping $($rejected.Count) invalid cache/export(s)." -ForegroundColor Yellow
+            }
+            return $plan.Directory
+        } catch {
+            $rejected += "  $($candidate.DirectoryName): $($_.Exception.Message)"
+            Write-Verbose "Skipping build $($candidate.DirectoryName): $($_.Exception.Message)"
+        }
+    }
+    $details = $rejected -join [Environment]::NewLine
+    throw ("No compatible completed build found for $($definition.Sketch)." +
+        [Environment]::NewLine + $details + [Environment]::NewLine +
+        "Select an existing compatible folder with -BuildDirectory, or create a new build once with: controller compile -Variant $VariantName. Flash does not compile.")
 }
 
 function Get-FlashPlan([string]$VariantName,[string]$Directory,[string]$Repository=$script:ProjectRoot) {
@@ -139,8 +155,22 @@ function Get-FlashPlan([string]$VariantName,[string]$Directory,[string]$Reposito
     $fqbn = ''
     if ($metadata -and $metadata.PSObject.Properties['fqbn']) { $fqbn = [string]$metadata.fqbn }
     if ($definition.Chip -eq 'esp32s3' -and $fqbn) {
-        if ($fqbn -notmatch '^esp32:esp32:esp32s3(?::|$)' -or $fqbn -notmatch '(?::|,)FlashSize=16M(?:,|$)' -or $fqbn -notmatch '(?::|,)PSRAM=opi(?:,|$)') {
-            throw "This cached S3 build does not match N16R8 settings: $fqbn . Select ESP32S3 Dev Module, 16MB flash and OPI PSRAM, then export once. Or choose an existing correctly built folder with -BuildDirectory."
+        $mismatches = @()
+        if ($fqbn -notmatch '^esp32:esp32:esp32s3(?::|$)') {
+            $mismatches += 'Board must be ESP32S3 Dev Module (esp32:esp32:esp32s3).'
+        }
+        if ($fqbn -notmatch '(?::|,)FlashSize=16M(?:,|$)') {
+            $mismatches += 'Flash Size must be 16MB (FlashSize=16M).'
+        }
+        if ($fqbn -notmatch '(?::|,)PSRAM=opi(?:,|$)') {
+            if ($fqbn -match '(?::|,)PSRAM=enabled(?:,|$)') {
+                $mismatches += 'PSRAM=enabled means QSPI PSRAM in the ESP32S3 Dev Module profile.'
+            }
+            $mismatches += 'Choose Tools > PSRAM > OPI PSRAM (PSRAM=opi) for the N16R8.'
+        }
+        if ($mismatches.Count) {
+            throw ("S3 build is incompatible with N16R8: " + ($mismatches -join ' ') +
+                " These settings are compiled into the binary; create a correctly configured build once or select an existing compatible folder with -BuildDirectory.")
         }
     }
     $partitions = @(Read-PartitionTable $table)

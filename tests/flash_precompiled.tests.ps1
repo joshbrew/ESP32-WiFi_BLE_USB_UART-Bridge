@@ -110,6 +110,24 @@ try {
     $newDir=New-Fixture 'cache\newer' 's3-dispenser'
     (Get-Item -LiteralPath (Join-Path $oldDir 'ESP32S3_Dispenser_Controller.ino.bin')).LastWriteTimeUtc=[datetime]::UtcNow.AddMinutes(-10)
     Assert-Equal (Find-PrecompiledBuild 's3-dispenser' $testRoot $cache) $newDir 'latest matching build discovery'
+    $newMetadata = Join-Path $newDir 'build.options.json'
+    $badSettings = @{fqbn='esp32:esp32:esp32s3:CPUFreq=80,FlashSize=16M,PSRAM=enabled'}
+    $badSettings | ConvertTo-Json | Set-Content -LiteralPath $newMetadata -Encoding UTF8
+    Assert-Fails { Get-FlashPlan 's3-dispenser' $newDir $testRoot } 'PSRAM=enabled means QSPI'
+    Assert-Equal (Find-PrecompiledBuild 's3-dispenser' $testRoot $cache) $oldDir 'incompatible newest cache falls back to older compatible build'
+    $oldMetadata = Join-Path $oldDir 'build.options.json'
+    $goodOldMetadata = [IO.File]::ReadAllText($oldMetadata)
+    $badSettings | ConvertTo-Json | Set-Content -LiteralPath $oldMetadata -Encoding UTF8
+    Assert-Fails { Find-PrecompiledBuild 's3-dispenser' $testRoot $cache } 'No compatible completed build.*'
+    [IO.File]::WriteAllText($oldMetadata,$goodOldMetadata,(New-Object Text.UTF8Encoding $false))
+    # A lower CPU frequency is supported by the board profile and is not the
+    # reason the user's cache was incompatible. Require the actual OPI setting.
+    @{fqbn='esp32:esp32:esp32s3:CPUFreq=80,FlashSize=16M,PSRAM=opi'} |
+        ConvertTo-Json | Set-Content -LiteralPath $newMetadata -Encoding UTF8
+    Assert-Equal (Get-FlashPlan 's3-dispenser' $newDir $testRoot).Chip 'esp32s3' '80 MHz with OPI remains accepted'
+    New-Image (Join-Path $newDir 'ESP32S3_Dispenser_Controller.ino.bin') 0 4
+    Assert-Equal (Find-PrecompiledBuild 's3-dispenser' $testRoot $cache) $oldDir 'wrong-chip newest cache is also skipped'
+    New-Image (Join-Path $newDir 'ESP32S3_Dispenser_Controller.ino.bin') 9 4
     $saved=Join-Path $testRoot 'precompiled\s3-dispenser'
     New-Item -ItemType Directory -Path $saved -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $oldDir 'ESP32S3_Dispenser_Controller.ino.bin') -Destination $saved
