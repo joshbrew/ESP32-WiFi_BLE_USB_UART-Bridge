@@ -5,10 +5,9 @@
 #endif
 
 StatusIndicators::StatusIndicators()
-  : activityPulseStartedMs_(0),
-    seekingStartedAtMs_(0),
+  : seekingStartedAtMs_(0),
     previousSeekingConnection_(false),
-    activityPulseArmed_(false),
+    receivePending_(false),
     connected_(false),
     seekingConnection_(false),
     operationActive_(false),
@@ -39,7 +38,7 @@ void StatusIndicators::begin(bool extendedBootSelfTest, bool suppressBootSelfTes
   Serial.printf(
     "[BOOT][LED] enabled rgb=%s rgbPin=%d connection=%d activity=%d bootTest=%s\n",
     AppConfig::STATUS_USE_RGB ? "yes" : "no",
-    AppConfig::STATUS_USE_RGB ? AppConfig::PIN_STATUS_RGB : -1,
+    AppConfig::STATUS_USE_RGB ? rgbPin_ : -1,
     AppConfig::PIN_STATUS_CONNECTION,
     AppConfig::PIN_STATUS_ACTIVITY,
     AppConfig::STATUS_LED_BOOT_SELF_TEST ? "on" : "off"
@@ -115,8 +114,47 @@ void StatusIndicators::noteCommandReceived() {
   if (!AppConfig::ENABLE_STATUS_INDICATORS) {
     return;
   }
-  activityPulseStartedMs_.store(millis(), std::memory_order_relaxed);
-  activityPulseArmed_.store(true, std::memory_order_release);
+  receivePending_.store(true, std::memory_order_release);
+}
+
+void StatusIndicators::noteResponseSent() {
+  if (AppConfig::ENABLE_STATUS_INDICATORS) transmitPending_.store(true, std::memory_order_release);
+}
+
+void StatusIndicators::serviceTraffic(uint32_t nowMs) {
+  if (trafficPhase_ != TrafficPhase::IDLE &&
+      static_cast<uint32_t>(nowMs - trafficPhaseStartedMs_) >= AppConfig::ACTIVITY_LED_PULSE_MS) {
+    trafficPhase_ = TrafficPhase::IDLE;
+  }
+  if (trafficPhase_ != TrafficPhase::IDLE) return;
+
+  // Coalesce bursts into bounded visible pulses. Alternate RX and TX when
+  // both are pending, so a prompt reply cannot erase its received-command flash.
+  const bool preferTransmit = lastTrafficPhase_ == TrafficPhase::RECEIVE ||
+    !receivePending_.load(std::memory_order_acquire);
+  if (preferTransmit && transmitPending_.exchange(false, std::memory_order_acq_rel)) {
+    trafficPhase_ = TrafficPhase::TRANSMIT;
+  } else if (receivePending_.exchange(false, std::memory_order_acq_rel)) {
+    trafficPhase_ = TrafficPhase::RECEIVE;
+  } else if (transmitPending_.exchange(false, std::memory_order_acq_rel)) {
+    trafficPhase_ = TrafficPhase::TRANSMIT;
+  }
+  if (trafficPhase_ != TrafficPhase::IDLE) {
+    lastTrafficPhase_ = trafficPhase_;
+    trafficPhaseStartedMs_ = nowMs;
+  }
+}
+
+bool StatusIndicators::setRgbPin(int pin) {
+  if (!AppConfig::ENABLE_STATUS_INDICATORS || !AppConfig::STATUS_USE_RGB ||
+      (pin != 38 && pin != 48) || isSelfTestActive()) return false;
+#if DRONE_CFG_BOARD_ESP32_S3 && APP_STATUS_INDICATORS_ENABLED
+  rgbLedWrite(rgbPin_, 0, 0, 0);
+#endif
+  rgbPin_ = pin;
+  rgbColor_ = UINT32_MAX;
+  forceOutputs(false, false);
+  return true;
 }
 
 void StatusIndicators::service(
@@ -149,17 +187,8 @@ void StatusIndicators::service(
     ((seekingElapsedMs / AppConfig::CONNECTION_LED_BLINK_MS) & 1U) == 0U;
   const bool connectionOn = connected || blinkOn;
 
-  bool pulseActive = false;
-  if (activityPulseArmed_.load(std::memory_order_acquire)) {
-    const uint32_t startedAtMs =
-      activityPulseStartedMs_.load(std::memory_order_relaxed);
-    pulseActive = static_cast<uint32_t>(nowMs - startedAtMs) <
-      AppConfig::ACTIVITY_LED_PULSE_MS;
-    if (!pulseActive) {
-      activityPulseArmed_.store(false, std::memory_order_release);
-    }
-  }
-  setOutputs(connectionOn, operationActive || pulseActive);
+  serviceTraffic(nowMs);
+  setOutputs(connectionOn, operationActive || trafficPhase_ != TrafficPhase::IDLE);
 }
 
 bool StatusIndicators::startSelfTest() {
@@ -258,16 +287,16 @@ void StatusIndicators::serviceSelfTest(uint32_t nowMs) {
 }
 
 void StatusIndicators::beginConnectionPulse(uint32_t nowMs) {
+  selfTestPhase_ = SelfTestPhase::CONNECTION_ON;
   setOutputs(true, false);
   logPinState("[LEDTEST]", AppConfig::PIN_STATUS_CONNECTION, true);
-  selfTestPhase_ = SelfTestPhase::CONNECTION_ON;
   selfTestPhaseEndsAtMs_ = nowMs + AppConfig::STATUS_LED_BOOT_SELF_TEST_ON_MS;
 }
 
 void StatusIndicators::beginActivityPulse(uint32_t nowMs) {
+  selfTestPhase_ = SelfTestPhase::ACTIVITY_ON;
   setOutputs(false, true);
   logPinState("[LEDTEST]", AppConfig::PIN_STATUS_ACTIVITY, true);
-  selfTestPhase_ = SelfTestPhase::ACTIVITY_ON;
   selfTestPhaseEndsAtMs_ = nowMs + AppConfig::STATUS_LED_BOOT_SELF_TEST_ON_MS;
 }
 
@@ -286,8 +315,8 @@ String StatusIndicators::statusText() const {
   text += " bootTest=" + String(AppConfig::STATUS_LED_BOOT_SELF_TEST ? "yes" : "no");
   text += " type=" + String(AppConfig::STATUS_USE_RGB ? "rgb" : "discrete");
   if (AppConfig::STATUS_USE_RGB) {
-    text += " rgbPin=" + String(AppConfig::PIN_STATUS_RGB);
-    text += " colors=green:connection,blue:command,amber:operation";
+    text += " rgbPin=" + String(rgbPin_);
+    text += " colors=green:connected,yellow:seeking,blue:RX,magenta:TX,amber:operation";
   }
   text += " connectionPin=" + String(AppConfig::PIN_STATUS_CONNECTION);
   text += " connectionOutput=" + String(
@@ -307,7 +336,10 @@ String StatusIndicators::statusText() const {
     operationActive_.load(std::memory_order_relaxed) ? "yes" : "no"
   );
   text += " commandPulse=" + String(
-    activityPulseArmed_.load(std::memory_order_relaxed) ? "active" : "idle"
+    (trafficPhase_ == TrafficPhase::RECEIVE || receivePending_.load(std::memory_order_relaxed)) ? "active" : "idle"
+  );
+  text += " transmitPulse=" + String(
+    (trafficPhase_ == TrafficPhase::TRANSMIT || transmitPending_.load(std::memory_order_relaxed)) ? "active" : "idle"
   );
   text += " selfTest=" + String(isSelfTestActive() ? "active" : "idle");
   text += " connectionMode=" + String(
@@ -326,7 +358,7 @@ String StatusIndicators::stateJson() const {
   json += "\"enabled\":" + String(AppConfig::ENABLE_STATUS_INDICATORS ? "true" : "false");
   json += ",\"bootTestEnabled\":" + String(AppConfig::STATUS_LED_BOOT_SELF_TEST ? "true" : "false");
   json += ",\"rgb\":" + String(AppConfig::STATUS_USE_RGB ? "true" : "false");
-  json += ",\"rgbPin\":" + String(AppConfig::STATUS_USE_RGB ? AppConfig::PIN_STATUS_RGB : -1);
+  json += ",\"rgbPin\":" + String(AppConfig::STATUS_USE_RGB ? rgbPin_ : -1);
   json += ",\"connectionPin\":" + String(AppConfig::PIN_STATUS_CONNECTION);
   json += ",\"activityPin\":" + String(AppConfig::PIN_STATUS_ACTIVITY);
   json += ",\"activeHigh\":" + String(
@@ -342,7 +374,10 @@ String StatusIndicators::stateJson() const {
     operationActive_.load(std::memory_order_relaxed) ? "true" : "false"
   );
   json += ",\"commandPulse\":" + String(
-    activityPulseArmed_.load(std::memory_order_relaxed) ? "true" : "false"
+    (trafficPhase_ == TrafficPhase::RECEIVE || receivePending_.load(std::memory_order_relaxed)) ? "true" : "false"
+  );
+  json += ",\"transmitPulse\":" + String(
+    (trafficPhase_ == TrafficPhase::TRANSMIT || transmitPending_.load(std::memory_order_relaxed)) ? "true" : "false"
   );
   json += ",\"selfTestActive\":" + String(isSelfTestActive() ? "true" : "false");
   json += ",\"connectionOutputHigh\":" + String(
@@ -392,15 +427,28 @@ void StatusIndicators::forceOutputs(bool connectionOn, bool activityOn) {
 void StatusIndicators::writeRgb(bool connectionOn, bool activityOn, bool force) {
 #if DRONE_CFG_BOARD_ESP32_S3 && APP_STATUS_INDICATORS_ENABLED
   const uint8_t brightness = AppConfig::STATUS_RGB_BRIGHTNESS;
-  const bool operating = activityOn && operationActive_.load(std::memory_order_relaxed);
-  // Activity takes priority so a command remains visible while connected.
-  const uint8_t red = operating ? brightness : 0;
-  const uint8_t green = operating ? brightness / 2 : (connectionOn && !activityOn ? brightness : 0);
-  const uint8_t blue = activityOn && !operating ? brightness : 0;
+  uint8_t red = 0, green = 0, blue = 0;
+  const bool testing = selfTestPhase_ != SelfTestPhase::IDLE;
+  if (activityOn) {
+    if (!testing && trafficPhase_ == TrafficPhase::TRANSMIT) {
+      red = brightness;
+      blue = brightness;
+    } else if (testing || trafficPhase_ == TrafficPhase::RECEIVE ||
+        !operationActive_.load(std::memory_order_relaxed)) {
+      blue = brightness;
+    } else {
+      red = brightness;
+      green = brightness / 2;
+    }
+  } else if (connectionOn) {
+    green = brightness;
+    if (!testing && seekingConnection_.load(std::memory_order_relaxed) &&
+        !connected_.load(std::memory_order_relaxed)) red = brightness;
+  }
   const uint32_t color = (uint32_t(red) << 16) | (uint32_t(green) << 8) | blue;
   // Send an addressable-LED frame only on a visible change, not every task tick.
   if (force || color != rgbColor_) {
-    rgbLedWrite(AppConfig::PIN_STATUS_RGB, red, green, blue);
+    rgbLedWrite(rgbPin_, red, green, blue);
     rgbColor_ = color;
   }
 #else
@@ -422,7 +470,7 @@ void StatusIndicators::writePin(int pin, bool on) {
 
 void StatusIndicators::logPinState(const char *prefix, int pin, bool on) const {
   if (AppConfig::STATUS_USE_RGB) {
-    Serial.printf("%s RGB GPIO%d %s\n", prefix, AppConfig::PIN_STATUS_RGB, on ? "on" : "off");
+    Serial.printf("%s RGB GPIO%d %s\n", prefix, rgbPin_, on ? "on" : "off");
     return;
   }
   Serial.printf("%s GPIO%d %s\n", prefix, pin, on ? "HIGH" : "LOW");

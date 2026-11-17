@@ -151,8 +151,10 @@ Commenting out `APP_ENABLE_STATUS_INDICATORS` removes LED GPIO and RGB-driver ac
 
 | Visible color | Meaning |
 |---|---|
-| Green | Connected; blinks while seeking a connection |
-| Blue | Command/activity pulse; takes priority over green |
+| Green | Connected and idle |
+| Yellow | Blinks while seeking a connection |
+| Blue | Received command |
+| Magenta | Transmitted reply/output |
 | Amber | An addon reports active work or commands remain queued |
 | Off | No connection or activity |
 
@@ -773,3 +775,19 @@ That is expected in this base build. The custom stepper/DAC implementation and i
 
 Home laptop hosting: [guided Docker setup and port forwarding](../docs/HOME_HOSTING.md).
 S3 LTE builds also support [secure Wi-Fi MQTT fallback](docs/LTE_FIELD_ACCESS.md#wi-fi-fallback-when-lte-fails); local Wi-Fi stays available independently.
+
+## S3 NeoPixel traffic indication
+
+The firmware-controlled NeoPixel shows blue for received commands, magenta for
+transmitted replies/output, green for an idle connection, blinking yellow while
+seeking a connection, and amber during active output. RX/TX flashes take
+precedence over active output and alternate when both are pending. Automatic
+state polling and internal routine steps do not generate command-traffic colors.
+The fixed power and USB bridge LEDs are driven by the board hardware.
+
+Use `IndicatorStatus` for the configured RGB pin and color legend. If the
+NeoPixel stays dark, send `IndicatorRGBPin:38` followed by `IndicatorTest`.
+Use `IndicatorRGBPin:48` to test the original pin. Pin selection lasts until
+reset. Set `APP_STATUS_RGB_PIN` to the working pin for the next build.
+Espressif's initial board uses GPIO48, while v1.1 uses GPIO38.
+[Espressif board revisions](https://documentation.espressif.com/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/user_guide_v1.1.html)

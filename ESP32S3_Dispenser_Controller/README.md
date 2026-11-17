@@ -488,3 +488,19 @@ Build + save stores the drive level with the timing. A positive off period
 allows repeat-until-stopped operation when the arm window is unlimited.
 Arm before running the saved routine. Stop Routine cancels future pulses and
 releases the motor. The S3 hosted console uses the same builder.
+
+## S3 NeoPixel traffic indication
+
+The firmware-controlled NeoPixel shows blue for received commands, magenta for
+transmitted replies/output, green for an idle connection, blinking yellow while
+seeking a connection, and amber during active output. RX/TX flashes take
+precedence over active output and alternate when both are pending. Automatic
+state polling and internal routine steps do not generate command-traffic colors.
+The fixed power and USB bridge LEDs are driven by the board hardware.
+
+Use `IndicatorStatus` for the configured RGB pin and color legend. If the
+NeoPixel stays dark, send `IndicatorRGBPin:38` followed by `IndicatorTest`.
+Use `IndicatorRGBPin:48` to test the original pin. Pin selection lasts until
+reset. Set `DRONE_CFG_STATUS_RGB_PIN` to the working pin for the next build.
+Espressif's initial board uses GPIO48, while v1.1 uses GPIO38.
+[Espressif board revisions](https://documentation.espressif.com/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/user_guide_v1.1.html)

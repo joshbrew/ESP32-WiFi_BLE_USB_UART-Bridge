@@ -16,7 +16,7 @@ static const char *const HELP_ROWS[] = {
   "Routines: RoutineCreate RoutineAdd RoutineRepeat RoutineSave RoutineRun RoutineStop RoutineList RoutineShow RoutineErase",
   "Coordinates: GeoSource GeoClear GeoAdd GeoSave GeoLoad GeoStart GeoStop GeoStatus GeoList GeoResetPosition GeoPosition",
   "Boot/test: ProductionMode DebugMode BootModeStatus SelfTestStart SelfTestStatus SelfTestResume SelfTestAbort SelfTestClear",
-  "Indicators: IndicatorStatus IndicatorTest IndicatorConnectionTest IndicatorActivityTest",
+  "Indicators: IndicatorStatus IndicatorTest IndicatorConnectionTest IndicatorActivityTest IndicatorRGBPin:38|48",
   "Send: Send:text SendBLE:text SendWiFi:text SendUSB:text SendSerial:text SendUART:text SendSPP:text SendStatus",
   "Radio: ModeWiFi ModeWiFiBLE ModeWiFiBLEP ModeBLE ModeBTSerial ModeUSB RadioBoot:PROFILE RadioStatus BLEStatus BLEWebHandoff BLEWebCancel",
   "Wi-Fi/config: WiFiMode WiFiLR WiFiTxPower WiFiApSSID WiFiApPassword WiFiStaSSID WiFiStaPassword WiFiStaClear ConfigSave ConfigLoad ConfigApply ConfigDefaults ConfigErase",
@@ -160,6 +160,17 @@ void CommandRouter::submit(
       publishBootMode(source, requestId, "saved and verified; effective on next boot");
     } else {
       error(source, requestId, "could not persist debug boot mode");
+    }
+    return;
+  }
+
+  if (TextUtil::startsWithIgnoreCase(command, "IndicatorRGBPin:")) {
+    long pin = 0;
+    if (!TextUtil::parseLong(command.substring(16), pin) || !indicators_.setRgbPin(static_cast<int>(pin))) {
+      error(source, requestId, "IndicatorRGBPin expects 38 or 48 with RGB indicators enabled and no LED test running");
+    } else {
+      publish(EventLevel::STATUS, source, requestId,
+        "[LED] RGB pin switched for this boot; set the matching config pin to preserve it");
     }
     return;
   }

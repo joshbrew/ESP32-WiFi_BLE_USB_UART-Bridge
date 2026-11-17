@@ -26,13 +26,20 @@ int main() {
   const auto writes = testRgbWrites.size();
   led.service(true,false,false); assert(testRgbWrites.size() == writes);
   led.noteCommandReceived(); led.service(true,false,false); expectColor(0,0,brightness);
-  led.service(true,false,true); expectColor(brightness,brightness/2,0);
+  led.service(true,false,true); expectColor(0,0,brightness);
   testNow += AppConfig::ACTIVITY_LED_PULSE_MS;
   led.service(true,false,false); expectColor(0,brightness,0);
-  led.service(false,true,false); expectColor(0,brightness,0);
+  led.service(false,true,false); expectColor(brightness,brightness,0);
   testNow += AppConfig::CONNECTION_LED_BLINK_MS;
   led.service(false,true,false); expectColor(0,0,0);
   assert(led.stateJson().value.find("\"rgb\":true") != std::string::npos);
+  led.noteResponseSent(); led.service(true,false,true);
+  expectColor(brightness,0,brightness);
+  led.noteCommandReceived();
+  testNow += AppConfig::ACTIVITY_LED_PULSE_MS;
+  led.service(true,false,true); expectColor(0,0,brightness);
+  testNow += AppConfig::ACTIVITY_LED_PULSE_MS;
+  led.service(true,false,true); expectColor(brightness,brightness/2,0);
   assert(led.startSelfTest()); assert(!led.startSelfTest());
   for (int tick = 0; tick < 20 && led.isSelfTestActive(); ++tick) {
     testNow += 250; led.service(false,false,false);

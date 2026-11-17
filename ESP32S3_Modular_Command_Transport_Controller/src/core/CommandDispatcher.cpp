@@ -140,7 +140,7 @@ bool CommandDispatcher::submit(
   const String &line,
   const String &requestId
 ) {
-  indicators_.noteCommandReceived();
+  if (isExternalCommandSource(source)) indicators_.noteCommandReceived();
 
   if (queue_ == nullptr && !begin()) {
     return false;
@@ -193,7 +193,7 @@ bool CommandDispatcher::submitBatch(
   const String &requestId,
   uint16_t &acceptedLines
 ) {
-  indicators_.noteCommandReceived();
+  if (isExternalCommandSource(source)) indicators_.noteCommandReceived();
   acceptedLines = 0;
 
   if (queue_ == nullptr && !begin()) {

@@ -259,3 +259,13 @@ OTA is driven from the browser console rather than a text command.
 ```
 
 The browser can begin from BLE, but the binary stream always transfers over Wi-Fi.
+
+## S3 NeoPixel diagnostics
+
+- `IndicatorStatus` prints the RGB pin and RX/TX color legend.
+- `IndicatorRGBPin:38` or `IndicatorRGBPin:48` selects the NeoPixel data pin
+  for this boot. Set `APP_STATUS_RGB_PIN` to preserve it in a future build.
+- `IndicatorTest` tests green and blue on the selected pin.
+
+Received commands flash blue, transmitted replies/output flash magenta,
+idle connection is green, seeking blinks yellow, and active output is amber.

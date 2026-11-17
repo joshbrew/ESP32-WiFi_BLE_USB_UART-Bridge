@@ -2,6 +2,7 @@
 #define ESP32_STEPPER_DUAL_DAC_EVENTBUS_H
 
 #include <Arduino.h>
+#include <atomic>
 #include <freertos/FreeRTOS.h>
 
 #include "../config/AppConfig.h"
@@ -33,6 +34,10 @@ class EventBus {
     bool rawPayload = false
   );
 
+  // Activity only. Do not publish another event in response to a send.
+  void noteTransmission() { transmitPending_.store(true, std::memory_order_release); }
+  bool consumeTransmission() { return transmitPending_.exchange(false, std::memory_order_acq_rel); }
+
   uint32_t oldestId() const;
   uint32_t latestId() const;
   uint16_t count() const;
@@ -42,6 +47,7 @@ class EventBus {
   uint32_t oldestIdUnlocked() const;
   uint32_t latestIdUnlocked() const;
 
+  std::atomic<bool> transmitPending_{false};
   EventRecord records_[AppConfig::EVENT_CAPACITY];
   uint16_t head_;
   uint16_t count_;

@@ -59,27 +59,58 @@ int main() {
 
   StatusIndicators led; led.begin(false, true);
 #if DRONE_CFG_BOARD_ESP32_S3
-  auto expectRgb = [](int red, int green, int blue) {
-    assert(!testRgbWrites.empty()); auto c = testRgbWrites.back();
-    assert(c.pin == AppConfig::PIN_STATUS_RGB && c.red == red && c.green == green && c.blue == blue);
-    assert(testModes.empty() && testWrites.empty()); // No discrete GPIO writes, including -1.
+  int expectedPin = AppConfig::PIN_STATUS_RGB;
+  auto expectRgb = [&](int red, int green, int blue) {
+    assert(!testRgbWrites.empty());
+    auto color = testRgbWrites.back();
+    assert(color.pin == expectedPin && color.red == red && color.green == green && color.blue == blue);
+    assert(testModes.empty() && testWrites.empty());
   };
   const int b = AppConfig::STATUS_RGB_BRIGHTNESS;
   expectRgb(0,0,0);
   led.service(true,false,false); expectRgb(0,b,0);
-  size_t writes = testRgbWrites.size(); led.service(true,false,false); assert(testRgbWrites.size() == writes);
-  led.noteCommandReceived(); led.service(true,false,false); expectRgb(0,0,b);
+  size_t writes = testRgbWrites.size();
+  led.service(true,false,false); assert(testRgbWrites.size() == writes);
+  led.noteCommandReceived();
+  led.noteResponseSent();
+  led.service(true,false,true); expectRgb(0,0,b);
+  // Operation activity cannot hide RX, and a prompt TX must still get a turn.
+  led.noteCommandReceived();
+  testNow += AppConfig::ACTIVITY_LED_PULSE_MS;
+  led.service(true,false,true); expectRgb(b,0,b);
+  led.noteResponseSent();
+  testNow += AppConfig::ACTIVITY_LED_PULSE_MS;
+  led.service(true,false,true); expectRgb(0,0,b);
+  testNow += AppConfig::ACTIVITY_LED_PULSE_MS;
+  led.service(true,false,true); expectRgb(b,0,b);
+  testNow += AppConfig::ACTIVITY_LED_PULSE_MS;
   led.service(true,false,true); expectRgb(b,b/2,0);
-  testNow += AppConfig::ACTIVITY_LED_PULSE_MS; led.service(true,false,false); expectRgb(0,b,0);
-  led.service(false,true,false); expectRgb(0,b,0);
-  testNow += AppConfig::CONNECTION_LED_BLINK_MS; led.service(false,true,false); expectRgb(0,0,0);
+  led.service(true,false,false); expectRgb(0,b,0);
+  led.service(false,true,false); expectRgb(b,b,0);
+  testNow += AppConfig::CONNECTION_LED_BLINK_MS;
+  led.service(false,true,false); expectRgb(0,0,0);
   assert(led.stateJson().value.find("\"rgb\":true") != std::string::npos);
-  assert(led.startSelfTest()); assert(!led.startActivityTest());
+  assert(led.statusText().value.find("magenta:TX") != std::string::npos);
+  assert(!led.setRgbPin(19));
+  expectedPin = AppConfig::PIN_STATUS_RGB == 48 ? 38 : 48;
+  assert(led.setRgbPin(expectedPin));
+  expectRgb(0,0,0);
+  assert(led.stateJson().value.find("\"rgbPin\":" + std::to_string(expectedPin)) != std::string::npos);
+  assert(led.startSelfTest());
+  assert(!led.setRgbPin(AppConfig::PIN_STATUS_RGB));
+  assert(!led.startActivityTest());
   for (int i = 0; i < 20 && led.isSelfTestActive(); ++i) {
     testNow += 250; led.service(false,false,false);
   }
   assert(!led.isSelfTestActive() && led.consumeSelfTestCompleted()); expectRgb(0,0,0);
-  led.begin(false); expectRgb(0,0,0); // Production boot test finishes dark.
+  led.begin(false); expectRgb(0,0,0);
+  testNow = UINT32_MAX - AppConfig::ACTIVITY_LED_PULSE_MS / 2;
+  led.noteCommandReceived(); led.noteResponseSent();
+  led.service(true,false,false); expectRgb(0,0,b);
+  testNow += AppConfig::ACTIVITY_LED_PULSE_MS;
+  led.service(true,false,false); expectRgb(b,0,b);
+  testNow += AppConfig::ACTIVITY_LED_PULSE_MS;
+  led.service(true,false,false); expectRgb(0,b,0);
 #else
   assert(testRgbWrites.empty());
   led.service(true,false,false); assert(testLevels[23] == HIGH && testLevels[5] == LOW);

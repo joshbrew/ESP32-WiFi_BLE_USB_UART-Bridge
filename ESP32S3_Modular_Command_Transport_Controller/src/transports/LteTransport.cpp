@@ -135,7 +135,9 @@ struct LteTransport::Impl {
       const size_t remaining=payload.length()-at, count=remaining<512?remaining:512;
       if(mqtt.write(reinterpret_cast<const uint8_t*>(payload.c_str()+at),count)!=count){mqtt.stop();return false;}
     }
-    return mqtt.endMessage() == 1;
+    const bool sent = mqtt.endMessage() == 1;
+    if (sent && (!strcmp(suffix, "ack") || !strcmp(suffix, "event"))) owner.events_.noteTransmission();
+    return sent;
   }
   void reply(const Reply &value) {
     JsonDocument json; json["id"]=value.id;json["session"]=session;

@@ -770,7 +770,8 @@ void WebPortal::sendAsset(
 void WebPortal::sendJson(
   AsyncWebServerRequest *request,
   int statusCode,
-  String json
+  String json,
+  bool indicateTraffic
 ) {
   const size_t length = json.length();
   if (
@@ -807,6 +808,7 @@ void WebPortal::sendJson(
   response->addHeader("Access-Control-Allow-Origin", "*");
   response->addHeader("Connection", "close");
   request->send(response);
+  if (indicateTraffic || request->url() == "/api/command") events_.noteTransmission();
 }
 
 void WebPortal::sendText(
@@ -941,7 +943,7 @@ void WebPortal::handleEvents(AsyncWebServerRequest *request) {
   json += ",\"reset\":" + TextUtil::jsonBool(resetCursor);
   json += ",\"more\":" + TextUtil::jsonBool(cursor < events_.latestId());
   json += "}";
-  sendJson(request, 200, std::move(json));
+  sendJson(request, 200, std::move(json), emitted > 0);
 }
 
 void WebPortal::handleCommandBody(

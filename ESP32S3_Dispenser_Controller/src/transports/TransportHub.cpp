@@ -1379,6 +1379,7 @@ void TransportHub::flushUsb() {
   if (count > 0) {
     const size_t written = Serial.write(reinterpret_cast<const uint8_t *>(buffer), count);
     usbOutput_.discard(min(written, count));
+    if (written > 0) events_.noteTransmission();
   }
 }
 
@@ -1392,6 +1393,7 @@ void TransportHub::flushSpp() {
   if (count > 0) {
     const size_t written = serialBt_.write(reinterpret_cast<const uint8_t *>(buffer), count);
     sppOutput_.discard(min(written, count));
+    if (written > 0) events_.noteTransmission();
   }
 #endif
 }
@@ -1484,6 +1486,7 @@ void TransportHub::flushBle() {
     return;
   }
   bleTx_->notify();
+  if (!directFrame) events_.noteTransmission();
   xSemaphoreGive(bleNotifyMutex_);
 
   if (directFrame) {
@@ -1519,6 +1522,7 @@ void TransportHub::flushUart() {
   if (count > 0) {
     const size_t written = auxUart_.write(reinterpret_cast<const uint8_t *>(buffer), count);
     uartOutput_.discard(min(written, count));
+    if (written > 0) events_.noteTransmission();
   }
 #endif
 }

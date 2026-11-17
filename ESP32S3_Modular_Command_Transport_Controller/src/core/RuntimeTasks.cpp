@@ -129,10 +129,11 @@ void RuntimeTasks::serviceOnce() {
   router_.service();
   selfTest_.service();
   addon_.service();
+  if (events_.consumeTransmission()) indicators_.noteResponseSent();
   indicators_.service(
     radios_.hasUserConnection() || lte_.isConnected(),
     radios_.isSeekingConnection() || lte_.isSeeking(),
-    dispatcher_.hasPendingCommands() || addon_.isBusy() || addon_.hasTimedOperationActive()
+    dispatcher_.hasPendingCommands() || addon_.isBusy() || addon_.hasActiveOutput()
   );
 }
 

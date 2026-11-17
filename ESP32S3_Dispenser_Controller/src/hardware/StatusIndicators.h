@@ -14,6 +14,8 @@ class StatusIndicators {
 
   void begin(bool extendedBootSelfTest, bool suppressBootSelfTest = false);
   void noteCommandReceived();
+  void noteResponseSent();
+  bool setRgbPin(int pin);
   void service(bool connected, bool seekingConnection, bool operationActive);
 
   bool startSelfTest();
@@ -34,6 +36,8 @@ class StatusIndicators {
     ACTIVITY_OFF
   };
 
+  enum class TrafficPhase : uint8_t { IDLE, RECEIVE, TRANSMIT };
+  void serviceTraffic(uint32_t nowMs);
   void runBootSelfTest(bool extendedBootSelfTest);
   void serviceSelfTest(uint32_t nowMs);
   bool startTest(uint8_t connectionCycles, uint8_t activityCycles);
@@ -46,10 +50,14 @@ class StatusIndicators {
   void writeRgb(bool connectionOn, bool activityOn, bool force);
   void logPinState(const char *prefix, int pin, bool on) const;
 
-  std::atomic<uint32_t> activityPulseStartedMs_;
+  std::atomic<bool> transmitPending_{false};
+  TrafficPhase trafficPhase_ = TrafficPhase::IDLE;
+  TrafficPhase lastTrafficPhase_ = TrafficPhase::TRANSMIT;
+  uint32_t trafficPhaseStartedMs_ = 0;
+  int rgbPin_ = AppConfig::PIN_STATUS_RGB;
   uint32_t seekingStartedAtMs_;
   bool previousSeekingConnection_;
-  std::atomic<bool> activityPulseArmed_;
+  std::atomic<bool> receivePending_;
   std::atomic<bool> connected_;
   std::atomic<bool> seekingConnection_;
   std::atomic<bool> operationActive_;

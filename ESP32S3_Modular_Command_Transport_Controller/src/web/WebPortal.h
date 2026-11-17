@@ -129,7 +129,8 @@ class WebPortal {
     size_t length,
     const char *contentEncoding = nullptr
   );
-  void sendJson(AsyncWebServerRequest *request, int statusCode, String json);
+  void sendJson(AsyncWebServerRequest *request, int statusCode, String json,
+    bool indicateTraffic = false);
   void sendText(
     AsyncWebServerRequest *request,
     int statusCode,
