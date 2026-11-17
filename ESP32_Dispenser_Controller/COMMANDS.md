@@ -396,3 +396,12 @@ A single bounded steady run uses off time 0 and repeat count 1. The motor and
 payload limits apply to each run, and the arm window must cover the routine.
 `RoutineStop`, `MotorStop`, `MotorCoast` and `StopAll` cancel an active motor
 routine and release its outputs.
+
+## Browser heartbeat
+
+`Heartbeat` pulses the status/activity LED for 250 ms.
+`Heartbeat:<token>` also returns `HEARTBEAT <token>` for a round-trip check.
+Tokens can contain up to 24 letters, digits, hyphens or underscores.
+On S3 builds the heartbeat is white. On classic boards the activity LED pulses.
+Enable the browser's **Heartbeat · every 2 s** toggle for repeated range tests.
+Keep the tab visible. The timer belongs to that browser page.

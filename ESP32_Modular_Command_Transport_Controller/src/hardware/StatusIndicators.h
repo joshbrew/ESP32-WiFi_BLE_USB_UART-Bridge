@@ -14,6 +14,7 @@ class StatusIndicators {
 
   void begin(bool extendedBootSelfTest, bool suppressBootSelfTest = false);
   void noteCommandReceived();
+  void noteHeartbeat();
   void service(bool connected, bool seekingConnection, bool operationActive);
 
   bool startSelfTest();
@@ -46,6 +47,9 @@ class StatusIndicators {
   void logPinState(const char *prefix, int pin, bool on) const;
 
   std::atomic<uint32_t> activityPulseStartedMs_;
+  uint32_t heartbeatStartedMs_ = 0;
+  bool heartbeatArmed_ = false;
+  bool heartbeatPulse_ = false;
   uint32_t seekingStartedAtMs_;
   bool previousSeekingConnection_;
   std::atomic<bool> activityPulseArmed_;

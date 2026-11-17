@@ -1,5 +1,6 @@
 /* User-facing payload controls with an advanced shared command console. */
 "use strict";
+let browserHeartbeat = null;
 
 const BLE_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const BLE_RX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
@@ -142,6 +143,8 @@ function appendLog(line) {
   if(elements.followLog.checked&&nearBottom)elements.log.scrollTop=elements.log.scrollHeight;
 }
 function log(message, level = "info") {
+  browserHeartbeat?.observe(message);
+
   appendLog(`[${now()}] ${level.toUpperCase()} ${message}`);
 }
 function rawLog(message) { appendLog(String(message)); }
@@ -445,7 +448,8 @@ function renderState(data) {
 async function postHttpNow(body,id,fast,epoch=state.commandGeneration) {
   const clean=String(body||"").replace(/\r/g,"").trim();if(!clean)throw new Error("Empty command");
   let last;
-  const timeout=fast?3200:6500,delays=fast?[0]:[0,400,1000];
+  const heartbeat = /^Heartbeat:/i.test(clean);
+  const timeout=heartbeat?1800:fast?3200:6500,delays=heartbeat||fast?[0]:[0,400,1000];
   const sentAt=performance.now(),relaySession=window.ESP32_REMOTE?.session,deviceSession=state.latest?.uplink?.session;
   state.httpQuietUntil=Date.now()+timeout+300;
   for(const delay of delays){
@@ -1323,6 +1327,144 @@ function installPresetSearch() {
   filter();
 }
 
+
+
+function installBrowserHeartbeat() {
+  const container = document.createElement("div");
+  container.className = "heartbeatControls";
+  const label = document.createElement("label");
+  const toggle = document.createElement("input");
+  toggle.type = "checkbox";
+  toggle.id = "browserHeartbeat";
+  label.append(toggle, document.createTextNode(" Heartbeat · every 2 s"));
+  const status = document.createElement("span");
+  status.id = "heartbeatStatus";
+  status.setAttribute("role", "status");
+  const hint = document.createElement("small");
+  hint.textContent = "Keep this tab visible for range testing.";
+  container.append(label, status, hint);
+  document.querySelector(".consoleActions").after(container);
+
+  let enabled = false, sending = false, timer = null;
+  let generation = 0, pending = null, nextSendAt = 0;
+  let replies = 0, missed = 0, lastRtt = null;
+  function scope() {
+    return JSON.stringify([
+      usingBle() ? "ble" : "http",
+      usingBle() ? state.bleDevice?.id || "paired" : api("/"),
+      state.latest?.uplink?.relaySession || "",
+      state.latest?.uplink?.session || ""
+    ]);
+  }
+  function display(message, phase = "") {
+    const counts = `${replies} ${replies === 1 ? "reply" : "replies"} · ${missed} missed${lastRtt === null ? "" : ` · ${lastRtt} ms`}`;
+    const text = `${message} · ${counts}`;
+    if (status.textContent !== text) status.textContent = text;
+    status.dataset.phase = phase;
+  }
+  function schedule(delay = 200) {
+    clearTimeout(timer);
+    if (enabled) timer = setTimeout(tick, delay);
+  }
+  async function send() {
+    const attempt = {
+      token: rid().replace(/^web-/, "hb-"),
+      started: performance.now(),
+      scope: scope(),
+      generation
+    };
+    pending = attempt;
+    nextSendAt = attempt.started + 2000;
+    sending = true;
+    display("Waiting for device reply", "waiting");
+    try {
+      await runCommand(`Heartbeat:${attempt.token}`);
+    } catch (error) {
+      if (enabled && generation === attempt.generation && pending === attempt) {
+        pending = null;
+        ++missed;
+        display(error.name === "CommandCancelled" ? "Attempt cancelled" : "No device reply", "missed");
+      }
+    } finally {
+      sending = false;
+    }
+  }
+  function tick() {
+    if (!enabled) return;
+    if (document.hidden) {
+      display("Paused while tab is hidden");
+      schedule();
+      return;
+    }
+    const time = performance.now();
+    if (pending && pending.scope !== scope()) {
+      pending = null;
+      ++generation;
+      nextSendAt = time + 2000;
+      display("Connection changed");
+    }
+    if (pending && time - pending.started >= 5000) {
+      pending = null;
+      ++missed;
+      display("Device reply timed out", "missed");
+    }
+    if (!pending && !sending && time >= nextSendAt) {
+      if (state.busy || state.otaActive || state.latest?.selfTest?.active) {
+        display("Paused while controller is busy");
+      } else {
+        void send();
+      }
+    }
+    schedule();
+  }
+  function observe(message) {
+    if (!enabled || document.hidden || !pending || pending.scope !== scope()) return;
+    if (performance.now() - pending.started >= 5000) return;
+    const match = String(message).match(/\bHEARTBEAT ([A-Za-z0-9_-]{1,24})\b/);
+    if (!match || match[1] !== pending.token) return;
+    lastRtt = Math.round(performance.now() - pending.started);
+    pending = null;
+    ++replies;
+    display(String(message).includes("LED_DISABLED") ? "Device replied; LED disabled" : "Device replied", "reply");
+  }
+  toggle.addEventListener("change", () => {
+    enabled = toggle.checked;
+    ++generation;
+    pending = null;
+    clearTimeout(timer);
+    if (enabled) {
+      replies = 0;
+      missed = 0;
+      lastRtt = null;
+      nextSendAt = performance.now();
+      display("Starting");
+      schedule(0);
+    } else {
+      display("Off");
+    }
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!enabled) return;
+    ++generation;
+    pending = null;
+    nextSendAt = performance.now();
+    display(document.hidden ? "Paused while tab is hidden" : "Resuming");
+    schedule(0);
+  });
+  window.addEventListener("pagehide", () => {
+    enabled = false;
+    toggle.checked = false;
+    ++generation;
+    pending = null;
+    clearTimeout(timer);
+    display("Off");
+  });
+  display("Off");
+  return { observe };
+}
+
+
+browserHeartbeat = installBrowserHeartbeat();
 
 buildCommandMenu();
 installPresetSearch();

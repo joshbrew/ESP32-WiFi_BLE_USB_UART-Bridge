@@ -517,7 +517,7 @@ def check_pin_map() -> None:
     if "STATUS_USE_RGB = true" not in config or "#define APP_STATUS_RGB_PIN 48" not in config:
         fail("S3 RGB backend/default pin missing")
     indicator = read("src/hardware/StatusIndicators.cpp")
-    if "rgbLedWrite(AppConfig::PIN_STATUS_RGB" not in indicator:
+    if "rgbLedWrite(rgbPin_," not in indicator:
         fail("addressable RGB driver missing")
     if "BleTxCharacteristicCallbacks" not in read("src/transports/TransportHub.cpp"):
         fail("NimBLE subscription callback missing")

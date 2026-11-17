@@ -11,7 +11,7 @@ constexpr const char *SYSTEM_PREFERENCES_NAMESPACE = "step-system";
 constexpr const char *PRODUCTION_MODE_KEY = "production";
 
 static const char *const HELP_ROWS[] = {
-  "Core: Ping Help Status ConfigRead USBStatus HeapStatus StopAll Reboot",
+  "Core: Ping Heartbeat[:token] Help Status ConfigRead USBStatus HeapStatus StopAll Reboot",
   "Payload: Arm Disarm Dispense:milliseconds DispenseStop DispenserStatus",
   "Routines: RoutineCreate RoutineAdd RoutineRepeat RoutineSave RoutineRun RoutineStop RoutineList RoutineShow RoutineErase",
   "Coordinates: GeoSource GeoClear GeoAdd GeoSave GeoLoad GeoStart GeoStop GeoStatus GeoList GeoResetPosition GeoPosition",
@@ -113,6 +113,25 @@ void CommandRouter::submit(
     ;
   if (rebootPending_ && !safetyCommand) {
     error(source, requestId, "controller reboot is pending; command ignored");
+    return;
+  }
+
+  if (command.equalsIgnoreCase("Heartbeat") || TextUtil::startsWithIgnoreCase(command, "Heartbeat:")) {
+    const String token = command.length() > 9 ? command.substring(10) : String();
+    bool valid = token.length() <= 24;
+    for (unsigned int i = 0; i < token.length(); ++i) {
+      const char c = token[i];
+      valid = valid && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+        (c >= '0' && c <= '9') || c == '-' || c == '_');
+    }
+    if (!valid || indicators_.isSelfTestActive()) {
+      error(source, requestId, "Heartbeat needs a token of at most 24 letters/digits and no active LED test");
+      return;
+    }
+    indicators_.noteHeartbeat();
+    publish(EventLevel::STATUS, source, requestId,
+      String("HEARTBEAT") + (token.length() ? " " + token : String()) +
+        (AppConfig::ENABLE_STATUS_INDICATORS ? "" : " LED_DISABLED"));
     return;
   }
 

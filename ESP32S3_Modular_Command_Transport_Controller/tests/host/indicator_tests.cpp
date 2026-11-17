@@ -40,6 +40,10 @@ int main() {
   led.service(true,false,true); expectColor(0,0,brightness);
   testNow += AppConfig::ACTIVITY_LED_PULSE_MS;
   led.service(true,false,true); expectColor(brightness,brightness/2,0);
+  led.noteHeartbeat();
+  led.service(true,false,true); expectColor(brightness,brightness,brightness);
+  testNow += 250;
+  led.service(true,false,false); expectColor(0,brightness,0);
   assert(led.startSelfTest()); assert(!led.startSelfTest());
   for (int tick = 0; tick < 20 && led.isSelfTestActive(); ++tick) {
     testNow += 250; led.service(false,false,false);

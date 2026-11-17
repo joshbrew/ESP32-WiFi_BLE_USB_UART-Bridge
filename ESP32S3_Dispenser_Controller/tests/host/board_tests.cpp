@@ -91,6 +91,12 @@ int main() {
   led.service(false,true,false); expectRgb(0,0,0);
   assert(led.stateJson().value.find("\"rgb\":true") != std::string::npos);
   assert(led.statusText().value.find("magenta:TX") != std::string::npos);
+  led.noteHeartbeat();
+  led.service(true,false,true); expectRgb(b,b,b);
+  testNow += 250;
+  led.service(true,false,true); expectRgb(b,b/2,0);
+  led.service(true,false,false); expectRgb(0,b,0);
+
   assert(!led.setRgbPin(19));
   expectedPin = AppConfig::PIN_STATUS_RGB == 48 ? 38 : 48;
   assert(led.setRgbPin(expectedPin));

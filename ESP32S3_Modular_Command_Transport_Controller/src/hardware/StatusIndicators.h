@@ -14,6 +14,7 @@ class StatusIndicators {
 
   void begin(bool extendedBootSelfTest, bool suppressBootSelfTest = false);
   void noteCommandReceived();
+  void noteHeartbeat();
   void noteResponseSent();
   bool setRgbPin(int pin);
   void service(bool connected, bool seekingConnection, bool operationActive);
@@ -55,6 +56,9 @@ class StatusIndicators {
   TrafficPhase lastTrafficPhase_ = TrafficPhase::TRANSMIT;
   uint32_t trafficPhaseStartedMs_ = 0;
   int rgbPin_ = AppConfig::PIN_STATUS_RGB;
+  uint32_t heartbeatStartedMs_ = 0;
+  bool heartbeatArmed_ = false;
+  bool heartbeatPulse_ = false;
   uint32_t seekingStartedAtMs_;
   bool previousSeekingConnection_;
   std::atomic<bool> receivePending_;

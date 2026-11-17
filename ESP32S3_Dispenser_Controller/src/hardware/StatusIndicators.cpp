@@ -110,6 +110,14 @@ void StatusIndicators::runBootSelfTest(bool extendedBootSelfTest) {
   Serial.flush();
 }
 
+// Called by the command router on the control task. The browser owns the
+// heartbeat timer, so loss of its commands stops these pulses automatically.
+void StatusIndicators::noteHeartbeat() {
+  if (!AppConfig::ENABLE_STATUS_INDICATORS) return;
+  heartbeatStartedMs_ = millis();
+  heartbeatArmed_ = true;
+}
+
 void StatusIndicators::noteCommandReceived() {
   if (!AppConfig::ENABLE_STATUS_INDICATORS) {
     return;
@@ -171,6 +179,8 @@ void StatusIndicators::service(
   }
 
   const uint32_t nowMs = millis();
+  heartbeatPulse_ = heartbeatArmed_ && static_cast<uint32_t>(nowMs - heartbeatStartedMs_) < 250U;
+  if (!heartbeatPulse_) heartbeatArmed_ = false;
   if (selfTestPhase_ != SelfTestPhase::IDLE) {
     serviceSelfTest(nowMs);
     return;
@@ -188,7 +198,7 @@ void StatusIndicators::service(
   const bool connectionOn = connected || blinkOn;
 
   serviceTraffic(nowMs);
-  setOutputs(connectionOn, operationActive || trafficPhase_ != TrafficPhase::IDLE);
+  setOutputs(connectionOn, operationActive || trafficPhase_ != TrafficPhase::IDLE || heartbeatPulse_);
 }
 
 bool StatusIndicators::startSelfTest() {
@@ -429,7 +439,11 @@ void StatusIndicators::writeRgb(bool connectionOn, bool activityOn, bool force) 
   const uint8_t brightness = AppConfig::STATUS_RGB_BRIGHTNESS;
   uint8_t red = 0, green = 0, blue = 0;
   const bool testing = selfTestPhase_ != SelfTestPhase::IDLE;
-  if (activityOn) {
+  if (heartbeatPulse_ && !testing) {
+    red = brightness;
+    green = brightness;
+    blue = brightness;
+  } else if (activityOn) {
     if (!testing && trafficPhase_ == TrafficPhase::TRANSMIT) {
       red = brightness;
       blue = brightness;

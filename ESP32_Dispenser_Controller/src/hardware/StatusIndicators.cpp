@@ -108,6 +108,14 @@ void StatusIndicators::runBootSelfTest(bool extendedBootSelfTest) {
   Serial.flush();
 }
 
+// Called by the command router on the control task. The browser owns the
+// heartbeat timer, so loss of its commands stops these pulses automatically.
+void StatusIndicators::noteHeartbeat() {
+  if (!AppConfig::ENABLE_STATUS_INDICATORS) return;
+  heartbeatStartedMs_ = millis();
+  heartbeatArmed_ = true;
+}
+
 void StatusIndicators::noteCommandReceived() {
   if (!AppConfig::ENABLE_STATUS_INDICATORS) {
     return;
@@ -130,6 +138,8 @@ void StatusIndicators::service(
   }
 
   const uint32_t nowMs = millis();
+  heartbeatPulse_ = heartbeatArmed_ && static_cast<uint32_t>(nowMs - heartbeatStartedMs_) < 250U;
+  if (!heartbeatPulse_) heartbeatArmed_ = false;
   if (selfTestPhase_ != SelfTestPhase::IDLE) {
     serviceSelfTest(nowMs);
     return;
@@ -156,7 +166,9 @@ void StatusIndicators::service(
       activityPulseArmed_.store(false, std::memory_order_release);
     }
   }
-  setOutputs(connectionOn, operationActive || pulseActive);
+  // A brief off edge also makes the pulse visible when activity was solid.
+  const bool heartbeatOn = static_cast<uint32_t>(nowMs - heartbeatStartedMs_) >= 50U;
+  setOutputs(connectionOn, heartbeatPulse_ ? heartbeatOn : operationActive || pulseActive);
 }
 
 bool StatusIndicators::startSelfTest() {
