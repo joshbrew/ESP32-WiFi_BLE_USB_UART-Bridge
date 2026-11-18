@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#080f18">
-<title>ESP32 Modular Controller Standalone Console</title><style>
+<title>ESP32 Controller Console</title><style>
 /* Compact control station. System fonts and CSS only; works without Internet. */
 :root{color-scheme:dark;--bg:#080f18;--panel:#101b29;--line:#26394b;--text:#e5f0f7;--muted:#8da5b8;--accent:#63dded;--good:#73e6b0;--bad:#ff7e8c;--radius:9px;font:14px/1.4 system-ui,-apple-system,Segoe UI,sans-serif}
 *{box-sizing:border-box}body{margin:0;color:var(--text);background:linear-gradient(#183b4718 1px,transparent 1px),linear-gradient(90deg,#183b4718 1px,transparent 1px),radial-gradient(ellipse at 5% 0,#123444 0,transparent 55%),var(--bg);background-size:40px 40px,40px 40px,auto,auto}header,main{width:min(1400px,calc(100% - 32px));margin:auto}header{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:17px 0 14px}.brand,.headerTools,.live,.consoleHead,.bleControls,.consoleActions,.transportLine,.logToolbar,.logToolbar>div,.otaRow,.inlineCommands{display:flex;align-items:center;gap:9px}.brandMark{display:grid;place-items:center;width:43px;height:43px;border:1px solid #4cd6dc70;border-radius:8px;background:#1a4a5233;color:var(--accent);font:700 17px ui-monospace,Consolas,monospace;box-shadow:inset 0 0 18px #3fe8e30b}.brand{gap:12px}h1,h2,p{margin:0}h1{font-size:1.4rem;font-weight:680;letter-spacing:-.035em}h2{font-size:1rem;font-weight:650}.kicker{color:var(--accent);font:600 .66rem/1.5 ui-monospace,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase}#buildVersion{font-size:.7rem;color:var(--muted);max-width:650px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.live{font-size:.78rem;white-space:nowrap;padding:7px 10px;border:1px solid var(--line);border-radius:30px;background:#0c1926}.live>span{width:7px;height:7px;border-radius:50%;background:var(--muted)}.live>span.on{background:var(--good);box-shadow:0 0 10px #73e6b044}.live>span.retrying{background:#f1c66d;box-shadow:none}.live>span.offline{background:var(--bad)}.workspace{display:grid;grid-template-columns:minmax(0,1fr) 338px;gap:13px}.panel{min-width:0;background:linear-gradient(135deg,#142333e8,#0e1926f5);border:1px solid var(--line);border-radius:var(--radius);padding:13px;box-shadow:0 8px 30px #0002}.console,.presets{height:clamp(510px,calc(100svh - 166px),850px)}.console{display:flex;flex-direction:column;border-top-color:#49b9c277}.consoleHead,.transportLine,.logToolbar{justify-content:space-between}.bleControls,.consoleActions,.otaRow,.inlineCommands{flex-wrap:wrap}.transportLine{font:.69rem ui-monospace,Consolas,monospace;color:var(--muted);gap:12px;margin:10px 0;padding-bottom:9px;border-bottom:1px solid var(--line)}#transportSummary{color:var(--accent)}.fieldLabel{display:flex;justify-content:space-between;gap:5px;font-size:.69rem;color:var(--muted);margin:7px 0 4px}.fieldLabel span{font-size:.63rem;color:#758c9f}.composer .fieldLabel:first-child{margin-top:0}button,input,select,textarea{font:inherit;color:var(--text);background:#132334;border:1px solid #314a60;border-radius:6px}button{padding:7px 10px;font-size:.78rem;font-weight:600;cursor:pointer;transition:background .14s,border-color .14s}button:hover{border-color:var(--accent);background:#183747}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}button:disabled,option:disabled{opacity:.38;cursor:not-allowed}[hidden]{display:none!important}.primary{background:#1d646e;border-color:#4db6c0;color:#f2ffff}.primary:hover{background:#277d86}.danger{color:#ffc2c9;background:#4e252f;border-color:#a75565}.danger:hover{background:#70323f;border-color:#ff8b9d}.quiet{padding:3px 8px;background:transparent;color:var(--muted);border-color:transparent}select,textarea{width:100%;padding:8px 10px;font-size:.82rem}select{height:35px}textarea{font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;min-height:61px;max-height:180px;resize:vertical;background:#091521}.consoleActions{margin-top:8px}.consoleActions .primary{min-width:136px}.consoleActions .hint{margin-left:auto;font-size:.66rem}.hint{color:var(--muted);font-size:.74rem}.logToolbar{margin:12px 0 6px}#logCount{color:var(--muted);font-size:.62rem;margin-left:7px;letter-spacing:0;text-transform:none}.follow{display:flex;align-items:center;gap:4px;color:var(--muted);font-size:.7rem}.follow input{width:12px;height:12px;accent-color:var(--accent)}pre{min-height:130px;flex:1;overflow:auto;margin:0;padding:11px;border-radius:6px;background:#050c14;border:1px solid #203345;color:#cee4ee;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;scrollbar-color:#315065 #09121c}.presets{display:flex;flex-direction:column}.presetHead{padding:1px 0 11px;border-bottom:1px solid var(--line)}.presetHead h2{margin:2px 0 3px}#presetGroups{overflow:auto;min-height:0;scrollbar-color:#315065 #101b29;padding-right:3px}.presetGroup{padding-top:12px}.presetGroup h3{margin:0 0 6px;color:var(--muted);font:.67rem ui-monospace,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase}.presetButtons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}.presetButtons button{min-width:0;text-align:left;padding:7px 8px;background:#111f2e}.presetButtons button.selected{border-color:var(--accent);background:#173944}.presetButtons strong{display:block;font-size:.74rem;font-weight:580;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.presetButtons code{display:block;color:#7b9caf;font:.6rem/1.5 ui-monospace,Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.utilityGrid{display:grid;grid-template-columns:1.4fr 1fr 1fr;align-items:start;gap:10px;margin-top:12px}.utilityGrid .panel{padding:10px 12px}summary{display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer;font-size:.76rem;font-weight:650}summary:after{content:"+";color:var(--accent);margin-left:auto}details[open] summary:after{content:"−"}summary small{max-width:66%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.65rem;color:var(--muted);font-weight:450}details[open] summary{margin-bottom:12px}.statusGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.status{background:#0b1621;border:1px solid #233749;border-radius:6px;padding:7px}.status span{display:block;color:var(--muted);font-size:.59rem;text-transform:uppercase;letter-spacing:.06em}.status strong{display:block;margin-top:3px;font-size:.75rem;font-weight:550;overflow-wrap:anywhere}.otaRow{margin:8px 0}.otaRow input{min-width:0;width:100%;font-size:.68rem;padding:6px}.inlineCommands{margin-top:9px}#selfTestSummary{font-size:.73rem;color:var(--muted)}progress{width:100%;height:8px;accent-color:var(--accent)}footer{display:flex;gap:12px;font:.61rem ui-monospace,Consolas,monospace;color:#6e899f;padding:10px 2px 16px}footer span:last-child{margin-left:auto}code{color:var(--accent)}.mobileJump{display:none}a{color:var(--accent)}
@@ -34,34 +34,36 @@
 .heartbeatControls small{width:100%;color:var(--muted,#8da5b8)}
 #heartbeatStatus[data-phase="reply"]{color:var(--good,#73e6b0)}
 #heartbeatStatus[data-phase="missed"]{color:var(--bad,#ff7e8c)}
-
-
-.standaloneToolbar {
-  max-width: 1260px;
-  margin: 16px auto 0;
-  padding: 12px 20px;
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto minmax(240px, 1fr);
-  gap: 10px;
-  align-items: end;
-}
-.standaloneToolbar label { display: grid; gap: 6px; color: var(--muted); font-size: 0.82rem; }
-.standaloneToolbar .standaloneHint { color: var(--muted); line-height: 1.35; font-size: 0.82rem; }
-@media (max-width: 760px) {
-  .standaloneToolbar { grid-template-columns: 1fr; }
-}
-
+.standaloneToolbar{width:min(1260px,calc(100% - 24px));box-sizing:border-box;margin:12px auto 0;padding:12px 16px;display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,340px);gap:12px;align-items:start}
+.standaloneSummary strong{font-size:.85rem}
+.standaloneHint{color:var(--muted,#91a5b8);font-size:.78rem;line-height:1.4;margin:5px 0}
+.standaloneSummary a{font-size:.78rem;color:var(--accent,#47d7be)}
+.standaloneAddress{min-width:0}
+.standaloneAddress summary{cursor:pointer;font-size:.8rem}
+.standaloneAddress label{display:block;margin:10px 0 5px;font-size:.78rem;color:var(--muted,#91a5b8)}
+.standaloneAddress input{width:100%;box-sizing:border-box;min-width:0;padding:8px}
+.standaloneButtons{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+@media(max-width:760px){.standaloneToolbar{grid-template-columns:minmax(0,1fr)}}
 </style>
 </head>
 <body>
-  <section class="standaloneToolbar panel">
-    <label>Device URL
-      <input id="standaloneDeviceUrl" type="url" value="http://192.168.4.1" spellcheck="false">
-    </label>
-    <button id="standaloneUseDevice" class="success">Use device URL</button>
-    <p id="standaloneDeviceStatus" class="standaloneHint">Standalone console. This file is not embedded in or served by the ESP32.</p>
-  </section>
-
+<section class="standaloneToolbar panel" aria-label="Standalone connection">
+  <div class="standaloneSummary">
+    <strong>Offline console</strong>
+    <p id="standaloneDeviceStatus" class="standaloneHint" role="status">Connecting to the controller Wi-Fi. Or choose Connect BLE.</p>
+    <p class="standaloneHint">Allow local network access if your browser asks. BLE requires a click on Connect BLE.</p>
+    <a id="standaloneOpenDevice" href="http://192.168.4.1" target="_blank" rel="noopener">Open controller page ↗</a>
+  </div>
+  <details class="standaloneAddress">
+    <summary>Connection address</summary>
+    <label for="standaloneDeviceUrl">Custom controller address</label>
+    <input id="standaloneDeviceUrl" type="text" inputmode="url" value="http://192.168.4.1" spellcheck="false" autocomplete="off">
+    <div class="standaloneButtons">
+      <button id="standaloneUseDevice" type="button">Use address</button>
+      <button id="standaloneAutoDevice" type="button">Auto Wi-Fi</button>
+    </div>
+  </details>
+</section>
 <header>
 <div class="brand"><span class="brandMark" aria-hidden="true">ESP</span><div><span class="kicker">Command / control</span><h1>Modular Controller</h1><p id="buildVersion">Waiting for controller</p></div></div>
 <div class="headerTools"><a class="mobileJump" href="#presets">Presets ↓</a><div class="live" role="status"><span id="liveDot"></span><strong id="liveText">Connecting</strong></div></div>
@@ -79,7 +81,7 @@
 <div class="logToolbar"><span class="kicker">Output <span id="logCount">0 lines</span></span><div><label class="follow"><input id="followLog" type="checkbox" checked> Follow</label><button id="saveLog" class="quiet" title="Download displayed output as a text file">Save log</button><button id="clearLog" class="quiet">Clear</button></div></div>
 <pre id="log" role="log" aria-live="polite" aria-label="Controller output"></pre>
 </section>
-<aside id="presets" class="panel presets" aria-label="Command presets"><div class="presetHead"><span class="kicker">Quick access</span><h2>Command presets</h2><p class="hint">Choose to prefill. Review, then send.</p></div><div class="presetSearch"><label class="fieldLabel" for="presetSearch">Find a preset</label><input id="presetSearch" type="search" placeholder="Name or command…" autocomplete="off" spellcheck="false"><span id="presetCount" class="hint" role="status"></span><p id="presetEmpty" class="hint" hidden>No matching presets. Try a command name such as Status.</p></div><div id="presetGroups"></div></aside>
+<aside id="presets" class="panel presets" aria-label="Command presets"><div class="presetHead"><span class="kicker">Quick access</span><h2>Command presets</h2><p class="hint">Choose to prefill. Review, then send.</p></div><div class="presetSearch"><label class="fieldLabel" for="presetSearch">Find a preset</label><input id="presetSearch" type="search" placeholder="Name or command…" autocomplete="off" spellcheck="false"><span id="presetCount" class="hint" role="status"></span><p id="presetEmpty" class="hint" hidden>No matching presets. Try a command name such as Status.</p></div><p class="hint">Motor drivers: DRV8871 and TMC2209 controls are in the dispenser console and require dispenser firmware with motor-driver support enabled. This transport-only build does not own motor GPIOs.</p><div id="presetGroups"></div></aside>
 </div>
 <div class="utilityGrid">
 <details class="panel statusPanel"><summary><span>Live status</span><small id="statusSummary">Waiting for state</small></summary><div id="statusGrid" class="statusGrid" aria-label="Controller status"></div></details>
@@ -88,31 +90,70 @@
 </div>
 <footer>Local control <span>USB · Wi-Fi · BLE</span><span>Review commands before sending</span></footer>
 </main>
-
 <script>
 (() => {
   "use strict";
-  const storageKey = "esp32-controller-device-url";
-  const normalize = (value) => {
-    const trimmed = String(value || "").trim().replace(/\/+$/, "");
-    return trimmed || "http://192.168.4.1";
-  };
-
-  window.ESP32_API_BASE = normalize(localStorage.getItem(storageKey));
+  const accessPoint = "http://192.168.4.1";
+  const storageKey = "esp32-standalone-custom-url";
   const input = document.getElementById("standaloneDeviceUrl");
-  const button = document.getElementById("standaloneUseDevice");
   const status = document.getElementById("standaloneDeviceStatus");
-  input.value = window.ESP32_API_BASE;
-  status.textContent = `Standalone console targeting ${window.ESP32_API_BASE}`;
+  const connect = document.getElementById("standaloneUseDevice");
+  const automatic = document.getElementById("standaloneAutoDevice");
+  const open = document.getElementById("standaloneOpenDevice");
 
-  button.addEventListener("click", () => {
-    const next = normalize(input.value);
-    localStorage.setItem(storageKey, next);
-    window.location.reload();
+  function normalize(value) {
+    let text = String(value || "").trim();
+    if (!text) return accessPoint;
+    if (!/^https?:\/\//i.test(text)) text = "http://" + text;
+    const url = new URL(text);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+        url.pathname !== '/' || url.search || url.hash) {
+      throw new Error("Use a controller address such as http://192.168.4.1");
+    }
+    return url.origin;
+  }
+  function savedAddress() {
+    try { return localStorage.getItem(storageKey) || accessPoint; }
+    catch (_) { return accessPoint; }
+  }
+  const params = new URLSearchParams(location.hash.slice(1));
+  let custom = null;
+  try { if (params.has('controller')) custom = normalize(params.get('controller')); }
+  catch (_) { /* An invalid bookmark falls back to the controller access point. */ }
+  // Old saved addresses never redirect an automatic AP connection. A custom
+  // address is explicit in this file's URL so separately opened files stay auto.
+  window.ESP32_API_BASE = custom || accessPoint;
+  input.value = custom || savedAddress();
+  automatic.disabled = !custom;
+  open.href = window.ESP32_API_BASE;
+  status.textContent = (custom ? "Custom Wi-Fi: " : "Auto Wi-Fi: ") + window.ESP32_API_BASE +
+    ". Join the controller Wi-Fi; connection retries automatically. Or choose Connect BLE.";
+
+  function reload(address) {
+    const url = new URL(location.href);
+    url.hash = address ? new URLSearchParams({controller: address}).toString() : '';
+    if (url.href === location.href) location.reload();
+    else { history.replaceState(null, '', url.href); location.reload(); }
+  }
+  function useAddress() {
+    try {
+      const address = normalize(input.value);
+      input.setCustomValidity('');
+      try { localStorage.setItem(storageKey, address); } catch (_) {}
+      reload(address);
+    } catch (error) {
+      input.setCustomValidity(error.message);
+      input.reportValidity();
+    }
+  }
+  connect.addEventListener('click', useAddress);
+  input.addEventListener('input', () => input.setCustomValidity(''));
+  input.addEventListener('keydown', event => {
+    if (event.key === 'Enter') { event.preventDefault(); useAddress(); }
   });
+  automatic.addEventListener('click', () => reload(null));
 })();
 </script>
-
 <script>
 /* WEB UI EXTENSION MAP: add tutorial commands in ACTION_GROUPS and status cards in renderState(). */
 "use strict";
@@ -742,7 +783,6 @@ try {prefill(localStorage.getItem("s3-command-draft")||"Status")} catch(error){p
 renderTransport();log("Console ready. Choose a preset or enter a command.","status");
 document.addEventListener("visibilitychange",()=>{if(!document.hidden){state.nextStateAt=0;state.retryAt=0}});
 pollLoop();
-
 </script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 /* User-facing payload controls with an advanced shared command console. */
 "use strict";
 let browserHeartbeat = null;
+let motorDriverControls = null;
 
 const BLE_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const BLE_RX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
@@ -262,6 +263,7 @@ function buildCommandMenu() {
 }
 
 function updateActions() {
+  motorDriverControls?.refresh();
   const ble = usingBle();
   const addon = state.latest?.addon || {};
   const dispenser = state.latest?.dispenser || {};
@@ -270,7 +272,7 @@ function updateActions() {
   for (const item of document.querySelectorAll("[data-command], option[data-requires]")) {
     const command = item.dataset.command || item.value || "";
     let disabled = state.busy || !compiled(item.dataset.requires);
-    if (/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm|MotorStop|MotorCoast)$/i.test(command)) disabled = false;
+    if (/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm|(?:MotorStop|MotorCoast|TMCStop|TMCDisable)(?::[1-4])?)$/i.test(command)) disabled = false;
     if (/^Arm$/i.test(command) && dispenser.armed && !dispenser.faulted) disabled = true;
     if (/^Dispense:/i.test(command) && (!dispenser.armed || dispenser.faulted || dispenser.dispensing)) disabled = true;
     if (routine.active && (/^(?:Arm|DispenserArm)$/i.test(command) || /^Dispense:/i.test(command))) disabled = true;
@@ -324,12 +326,16 @@ function motorSuffix(select) {
 }
 
 function updateRoutineOutput(motor) {
-  elements.routineOutputChoice.hidden = !motor;
-  if (!motor) elements.routineOutput.value = "gpio";
-  const kind = elements.routineOutput.value;
-  const steady = kind === "motorSteady";
+  const stepper = state.latest?.dispenser?.tmc2209;
+  elements.routineOutputChoice.hidden = false;
+  for (const option of elements.routineOutput.options) {
+    option.disabled = option.value.startsWith("motor") ? (!motor || motor.channels?.length === 0) : option.value === "tmcPulse" ? (!stepper?.enabled || !stepper.channels?.length) : false;
+  }
+  if (elements.routineOutput.selectedOptions[0]?.disabled) elements.routineOutput.value = "gpio";
+  const kind = elements.routineOutput.value, steady = kind === "motorSteady";
   elements.gpioRoutineSettings.hidden = kind !== "gpio";
-  elements.motorRoutineSettings.hidden = kind === "gpio";
+  elements.motorRoutineSettings.hidden = !kind.startsWith("motor");
+  motorDriverControls?.routineMode(kind);
   elements.routineMotorOffField.hidden = steady;
   elements.routineContinuous.disabled = steady;
   elements.routineRepeats.disabled = steady || elements.routineContinuous.checked;
@@ -341,28 +347,25 @@ function updateRoutineOutput(motor) {
 
 function updateMotorControls(dispenser, automated) {
   const motor = dispenser.motor;
-  elements.motorControls.hidden = !motor;
-  if (!motor) return;
-
+  elements.motorControls.hidden = false;
+  elements.motorControls.disabled = !motor;
+  if (!motor) {
+    elements.motorState.textContent = state.latest ? "DRV8871 is not enabled in this firmware. Enable motor-driver support and upload once; pins can then be assigned here." : "Connect to check DRV8871 support.";
+    return;
+  }
   updateMotorPicker(elements.motorChannel, elements.motorChannelField, motor);
-  const driving = motor.mode === "drive";
-  const activeMotor = motor.activeMotor || 1;
-  const drivingSelected = driving && Number(elements.motorChannel.value) === activeMotor;
-  const armed = dispenser.armed && !dispenser.faulted && dispenser.interlockOpen !== false;
-  const canDrive = armed && !state.busy && !automated;
-  const canStart = canDrive && !dispenser.dispensing && Number(elements.motorLevel.value) > 0;
-  elements.motorStart.disabled = !canStart;
-  elements.motorPulse.disabled = !canStart;
-  elements.motorStop.disabled = false;
-  elements.motorStop.textContent = automated ? "Stop routine" : "Stop (brake)";
-  elements.motorCoast.disabled = false;
-  elements.motorLevel.disabled = drivingSelected && !canDrive;
+  const channel = motor.channels?.find(row => row[0] === Number(elements.motorChannel.value));
+  const mode = channel?.[4] || (Number(elements.motorChannel.value) === (motor.activeMotor || 1) ? motor.mode : "coast");
+  const armed = dispenser.armed && !dispenser.faulted && dispenser.interlockOpen !== false && !dispenser.drivers?.pending;
+  const canDrive = (channel || !motor.channels) && armed && !state.busy && !automated && !(dispenser.gpioActive ?? (dispenser.dispensing && !dispenser.motor));
+  elements.motorStart.disabled = !(canDrive && mode !== "drive" && Number(elements.motorLevel.value) > 0);
+  elements.motorPulse.disabled = elements.motorStart.disabled;
+  elements.motorStop.disabled = motor.channels?.length === 0;
+  elements.motorStop.textContent = automated ? "Stop routine" : "Stop selected (brake)";
+  elements.motorCoast.disabled = motor.channels?.length === 0;
+  elements.motorLevel.disabled = mode === "drive" && !canDrive;
   elements.motorDuration.max = motor.maxRunMs;
-  const status = driving
-    ? `Driving at ${motor.level}/255 · ${dispenser.remainingMs} ms remaining`
-    : `${motor.mode === "brake" ? "Braking" : "Coasting"} · max run ${motor.maxRunMs} ms`;
-  elements.motorState.textContent = motor.channels?.length > 1 && motor.mode !== "coast"
-    ? `${status} · motor ${activeMotor}` : status;
+  elements.motorState.textContent = motor.channels && !motor.channels.length ? "No DC motors configured. Use Assign pins / add motor." : mode === "drive" ? `Selected motor driving · ${channel?.[3] ?? motor.level}/255 · ${channel?.[5] ?? dispenser.remainingMs} ms remaining` : `Selected motor ${mode} · max run ${motor.maxRunMs} ms. Other motors can prime independently.`;
 }
 
 function renderTransport() {
@@ -402,7 +405,7 @@ function renderState(data) {
   elements.payloadState.textContent = payload;
   elements.payloadState.className = `stateBadge ${dispenser.faulted ? "fault" : dispenser.dispensing ? "active" : dispenser.armed ? "armed" : "safe"}`;
   elements.payloadMeta.textContent = addon.dispenser
-    ? `${(dispenser.pins || [dispenser.pin]).map(pin => `GPIO${pin}`).join(", ")} · ${dispenser.dispensing ? (dispenser.motor?.mode === "drive" ? "DRV8871 ACTIVE" : `GPIO${dispenser.activePin ?? dispenser.pin} ACTIVE`) : "outputs inactive"} · max pulse ${dispenser.maxPulseMs ? `${dispenser.maxPulseMs} ms` : "unlimited"} · pulse ${dispenser.remainingMs || 0} ms remaining · arm ${dispenser.armTimeoutMs ? `${dispenser.armRemainingMs || 0} ms remaining` : "no expiry"}${dispenser.interlockConfigured ? ` · interlock ${dispenser.interlockOpen ? "open" : "CLOSED"}` : ""}`
+    ? `${(dispenser.pins || [dispenser.pin]).map(pin => `GPIO${pin}`).join(", ")} · ${dispenser.dispensing ? (dispenser.tmc2209?.running ? "STEPPER ACTIVE" : dispenser.motor?.mode === "drive" ? "DRV8871 ACTIVE" : `GPIO${dispenser.activePin ?? dispenser.pin} ACTIVE`) : "outputs inactive"} · max pulse ${dispenser.maxPulseMs ? `${dispenser.maxPulseMs} ms` : "unlimited"} · pulse ${dispenser.remainingMs || 0} ms remaining · arm ${dispenser.armTimeoutMs ? `${dispenser.armRemainingMs || 0} ms remaining` : "no expiry"}${dispenser.interlockConfigured ? ` · interlock ${dispenser.interlockOpen ? "open" : "CLOSED"}` : ""}`
     : "This build uses the optional advanced stepper/DAC hardware profile.";
   initializeOutputs(dispenser);
   for (const input of [elements.pulseDuration, ...elements.outputRows.querySelectorAll(".outputPulse")]) {
@@ -516,7 +519,7 @@ function writeBle(text, characteristic = state.bleRx) {
 async function runCommand(body, fast = false) {
   const clean = String(body || "").trim();
   if (!clean) throw new Error("Empty command");
-  if (/^(MotorStop|MotorCoast)$/i.test(clean)) {
+  if (/^(MotorStop|MotorCoast|TMCStop|TMCDisable)(?::[1-4])?$/i.test(clean)) {
     fast = true;
     ++state.commandGeneration;
   } else if (/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm)$/i.test(clean)) {
@@ -793,6 +796,7 @@ async function saveRoutinePreset() {
   const steady = kind === "motorSteady";
   const repeats = steady ? 1 : elements.routineContinuous.checked ? "FOREVER" :
     readInteger(elements.routineRepeats, 1, 4294967295, "Repeats");
+  if (kind === "tmcPulse") { await motorDriverControls.saveRoutine(name, delay, repeats); return; }
   if (kind !== "gpio") {
     const on = readInteger(elements.routineMotorOn, 1, dispenser.motor.maxRunMs, "Motor on time");
     const off = steady ? 0 : readInteger(elements.routineMotorOff, 1, 4294967295, "Motor off time");
@@ -890,7 +894,7 @@ function renderSavedRoutines(library) {
   if (elements.savedRoutines.dataset.signature === signature) return;
   elements.savedRoutines.dataset.signature = signature;
   elements.savedRoutines.replaceChildren();
-  for (const [name, delay, pulse, gap, repeats, saved, steps, outputs, motorSteps, motorLevel, motorNumber = 1] of library) {
+  for (const [name, delay, pulse, gap, repeats, saved, steps, outputs, motorSteps, motorLevel, motorNumber = 1, tmcSteps, tmcRpm, tmcDirection, tmcMotor = 1] of library) {
     const row = document.createElement("div"); row.className = "savedRoutine";
     const label = document.createElement("div"); label.textContent = `${name}${saved ? "" : " (unsaved)"}`;
     const details = document.createElement("small");
@@ -902,6 +906,7 @@ function renderSavedRoutines(library) {
     } else if (motorSteps) {
       details.textContent = `${motorSteps} motor step(s) · ${outputs} timed outputs · ${repetition}`;
     }
+    if (tmcSteps) details.textContent = `TMC2209 motor ${tmcMotor} · ${tmcRpm} RPM ${tmcDirection > 0 ? "CW" : "CCW"} · on ${pulse} ms / off ${gap} ms · ${repetition}`;
     label.append(details); row.append(label);
     if (saved) {
       const button = document.createElement("button"); button.textContent = `Run ${name}`; button.className = "primary";
@@ -1015,7 +1020,7 @@ document.addEventListener("click", event => {
   const button = event.target.closest("button[data-command]");
   if (!button) return;
   const command = button.dataset.command;
-  if (/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm|MotorStop|MotorCoast)$/i.test(command)) {
+  if (/^(StopAll|RoutineStop|GeoStop|DispenseStop|Disarm|(?:MotorStop|MotorCoast|TMCStop|TMCDisable)(?::[1-4])?)$/i.test(command)) {
     runCommand(command, true).catch(error => log(error.message, "error"));
     return;
   }
@@ -1051,7 +1056,7 @@ elements.motorChannel.addEventListener("change", () => {
 });
 elements.motorLevel.addEventListener("change", () => {
   const motor = state.latest?.dispenser?.motor;
-  if (motor?.mode === "drive" && Number(elements.motorChannel.value) === (motor.activeMotor || 1)) {
+  if ((motor?.channels?.find(row => row[0] === Number(elements.motorChannel.value))?.[4] === "drive" || (motor?.mode === "drive" && Number(elements.motorChannel.value) === (motor.activeMotor || 1)))) {
     withLock(() => runCommand(`MotorLevel:${elements.motorLevel.value}${motorSuffix(elements.motorChannel)}`));
   }
 });
@@ -1168,7 +1173,7 @@ function installRemoteConsole() {
   }
 
   function relayAlive(){return Date.now()-Math.max(lastFrame,state.lastContact||0)<12000}
-  function priorityStop(body){return /^(StopAll|Disarm|DispenserDisarm|DispenserOff|RoutineStop|GeoStop|DispenseStop|GPIO26:OFF|MotorStop|MotorCoast)$/i.test(String(body).trim())}
+  function priorityStop(body){return /^(StopAll|Disarm|DispenserDisarm|DispenserOff|RoutineStop|GeoStop|DispenseStop|GPIO26:OFF)$/i.test(String(body).trim())}
   function streamLive(){return socket?.readyState===1&&lastFrame>0&&Date.now()-lastFrame<12000}
   function connectionLabel(){
     const uplink=state.latest?.uplink;
@@ -1481,3 +1486,164 @@ function syncStationPresets(){
     }
     for(const group of elements.presetGroups.children)group.hidden=[...group.querySelectorAll('[data-fill]')].every(button=>button.hidden);
   }
+
+function installMotorDriverControls() {
+  const dc = document.getElementById('motorControls');
+  const panel = document.createElement('fieldset');
+  panel.id = 'tmcControls'; panel.className = 'motorControls'; panel.disabled = true;
+  panel.innerHTML = `<legend>TMC2209 · NEMA 14 stepper</legend>
+    <p id="tmcState" class="hint" role="status">Connect to check stepper support.</p>
+    <label>Motor<select id="tmcMotor"><option value="1">Motor 1</option></select></label>
+    <label>Speed <output id="tmcRpmValue">30</output> RPM<input id="tmcRpm" type="range" min="1" max="120" value="30"></label>
+    <label>Direction<select id="tmcDirection"><option value="1">Forward / CW</option><option value="-1">Reverse / CCW</option></select></label>
+    <div class="payloadControls"><button id="tmcRun" type="button" class="primary">Start selected</button><button id="tmcStop" type="button" class="danger">Stop + release</button><button id="tmcInit" type="button">Check UART</button></div>
+    <div class="driverFields"><label>Move degrees<input id="tmcDegrees" type="number" min="0.1" max="360000" step="0.1" value="360"></label><button id="tmcMove" type="button">Move selected</button>
+    <label>Pulse ms<input id="tmcDuration" type="number" min="1" max="30000" value="1000"></label><button id="tmcPulse" type="button">Pulse selected</button></div>
+    <button id="tmcPrimeAll" type="button">Prime all steppers · pulse</button>
+    <details><summary>Current and microsteps</summary><div class="driverFields"><label>Current mA RMS<input id="tmcCurrent" type="number" min="50" max="350" value="300"></label>
+    <label>Microsteps<select id="tmcMicrosteps">${[1,2,4,8,16,32,64,128,256].map(n=>`<option value="${n}"${n===16?' selected':''}>${n}</option>`).join('')}</select></label></div>
+    <button id="tmcApply" type="button">Apply settings</button><p class="hint">Disarm to configure. Starts at 300 mA RMS; ceiling 350 mA RMS for this 0.5 A motor. Settings reset at boot.</p></details>`;
+  dc.after(panel);
+  const jump = document.createElement('nav'); jump.className = 'driverJump'; jump.setAttribute('aria-label','Motor drivers');
+  jump.innerHTML = '<span>Motor drivers</span><button type="button" aria-controls="motorControls">DC motors ↓</button><button type="button" aria-controls="tmcControls">Steppers ↓</button>';
+  dc.before(jump);
+  for (const button of jump.querySelectorAll('button')) button.addEventListener('click',()=>{
+    document.getElementById(button.getAttribute('aria-controls')).scrollIntoView({block:'nearest',behavior:'smooth'});
+  });
+  const $ = id => document.getElementById(id);
+  const controls = ['tmcRun','tmcMove','tmcPulse'];
+  function tmc() { return state.latest?.dispenser?.tmc2209; }
+  function selected() { return tmc()?.channels?.find(row=>row[0]===Number($('tmcMotor').value)); }
+  function values() {
+    return {rpm:readInteger($('tmcRpm'),1,tmc()?.maxRpm||120,'RPM'),direction:$('tmcDirection').value,
+      motor:readInteger($('tmcMotor'),1,4,'Motor'),duration:readInteger($('tmcDuration'),1,tmc()?.maxRunMs||30000,'Pulse duration')};
+  }
+  function send(work) { return withLock(work); }
+  $('tmcRpm').addEventListener('input',()=>$('tmcRpmValue').textContent=$('tmcRpm').value);
+  $('tmcMotor').addEventListener('change',()=>{settingsFromState();refresh();});
+  function settingsFromState() { const row=selected(); if(row){$('tmcCurrent').value=row[6];$('tmcMicrosteps').value=row[7];} }
+  $('tmcRun').addEventListener('click',()=>send(async()=>{const v=values();await runCommand(`TMCRun:${v.rpm},${v.direction},${v.motor}`);}));
+  $('tmcPulse').addEventListener('click',()=>send(async()=>{const v=values();await runCommand(`TMCPulse:${v.duration},${v.rpm},${v.direction},${v.motor}`);}));
+  $('tmcMove').addEventListener('click',()=>send(async()=>{
+    const v=values(),degrees=Number($('tmcDegrees').value);
+    if(!Number.isFinite(degrees)||degrees<=0||degrees>360000)throw new Error('Move needs positive degrees up to 360000');
+    await runCommand(`TMCMove:${degrees*Number(v.direction)},${v.rpm},${v.motor}`);
+  }));
+  $('tmcStop').addEventListener('click',()=>runCommand(`TMCStop:${$('tmcMotor').value}`,true).catch(error=>log(error.message,'error')));
+  $('tmcInit').addEventListener('click',()=>send(()=>runCommand('TMCInit')));
+  $('tmcApply').addEventListener('click',()=>send(async()=>{
+    const motor=$('tmcMotor').value,ma=readInteger($('tmcCurrent'),50,tmc()?.maxRmsMa||350,'RMS current');
+    await runCommand(`TMCCurrent:${ma},${motor}`);await runCommand(`TMCMicrosteps:${$('tmcMicrosteps').value},${motor}`);
+  }));
+  $('tmcPrimeAll').addEventListener('click',()=>send(async()=>{
+    const v=values();await runCommand(tmc().channels.map(row=>`TMCPulse:${v.duration},${v.rpm},${v.direction},${row[0]}`).join('\n'));
+  }));
+  const primeDc=document.createElement('button');primeDc.type='button';primeDc.id='motorPrimeAll';primeDc.textContent='Prime all DC motors · pulse';dc.append(primeDc);
+  primeDc.addEventListener('click',()=>send(async()=>{
+    const motor=state.latest?.dispenser?.motor;
+    const level=readInteger(elements.motorLevel,1,255,'Motor level'),duration=readInteger(elements.motorDuration,1,motor?.maxRunMs||30000,'Pulse duration');
+    await runCommand((motor.channels||[[1]]).map(row=>`MotorPulse:${duration},${level},${row[0]}`).join('\n'));
+  }));
+  const restart=document.createElement('div');restart.className='driverRestart';restart.hidden=true;
+  restart.innerHTML='<p class="hint" role="status">Pin changes saved. All motion is blocked until restart.</p><button id="driverRestart" type="button">Restart to apply pins</button>';
+  panel.after(restart);
+  $('driverRestart').addEventListener('click',()=>runCommand('Reboot',true).catch(error=>log(error.message,'error')));
+
+  function pinEditor(host,isStepper) {
+    const details=document.createElement('details');details.className='driverPinEditor';
+    details.innerHTML=`<summary>Assign pins / add motor</summary><p class="hint">Up to 4 slots per driver type, as free GPIOs permit. Disarm, save, then restart to apply. Motor numbers stay stable.</p>
+      <div class="driverFields"><label>Motor number<input data-pin="number" type="number" min="1" max="4" value="1"></label>
+      ${(isStepper?['STEP','DIR','EN','address']:['IN1','IN2']).map(name=>`<label>${name}<input data-pin="${name}" type="number" min="0" max="${name==='address'?3:48}"></label>`).join('')}</div>
+      <div class="standaloneButtons"><button data-save-pins type="button">Save pins</button><button data-remove-pins type="button">Remove last motor</button></div>`;
+    host.append(details);
+    const field=name=>details.querySelector(`[data-pin="${name}"]`);
+    let last='';
+    function refill() {
+      const pins=state.latest?.dispenser?.drivers?.pins;
+      const rows=pins?.[isStepper?'tmc2209':'drv8871']||[];
+      const row=rows.find(row=>row[0]===Number(field('number').value));
+      const key=JSON.stringify([field('number').value,row]);
+      if(key===last)return;last=key;
+      const names=isStepper?['STEP','DIR','EN','address']:['IN1','IN2'];
+      names.forEach((name,index)=>field(name).value=row?row[index+1]:'');
+    }
+    field('number').addEventListener('input',refill);
+    details.querySelector('[data-save-pins]').addEventListener('click',()=>send(async()=>{
+      const number=readInteger(field('number'),1,4,'Motor number');
+      const names=isStepper?['STEP','DIR','EN','address']:['IN1','IN2'];
+      const pins=names.map(name=>readInteger(field(name),0,name==='address'?3:48,name));
+      await runCommand(`${isStepper?'TMCPins':'MotorPins'}:${number},${pins.join(',')}`);
+    }));
+    details.querySelector('[data-remove-pins]').addEventListener('click',()=>send(()=>runCommand(`${isStepper?'TMCPins':'MotorPins'}:${field('number').value},OFF`)));
+    return {refresh(locked){
+      refill();for(const input of details.querySelectorAll('input,button'))input.disabled=locked;
+      const rows=state.latest?.dispenser?.drivers?.pins?.[isStepper?'tmc2209':'drv8871']||[];
+      const last=rows.at(-1)?.[0];details.querySelector('[data-remove-pins]').disabled=locked||rows.length<1||last!==Number(field('number').value);
+    }};
+  }
+  const dcPins=pinEditor(dc,false),stepPins=pinEditor(panel,true);
+  const uart=document.createElement('details');uart.className='driverPinEditor';
+  uart.innerHTML='<summary>Stepper UART pins</summary><p class="hint">Shared by the TMC drivers; each needs a different UART address. ESP32 TX connects through 1 kΩ to the single-wire node; RX connects directly.</p><div class="driverFields"><label>ESP32 TX<input id="tmcTxPin" type="number" min="0" max="48"></label><label>ESP32 RX<input id="tmcRxPin" type="number" min="0" max="48"></label></div><button id="tmcSaveUart" type="button">Save UART pins</button>';
+  panel.append(uart);let uartKey='';
+  $('tmcSaveUart').addEventListener('click',()=>send(()=>runCommand(`TMCUART:${readInteger($('tmcTxPin'),0,48,'TX pin')},${readInteger($('tmcRxPin'),0,48,'RX pin')}`)));
+
+  const routine=document.createElement('fieldset');routine.id='tmcRoutineSettings';routine.className='motorControls';routine.hidden=true;
+  routine.innerHTML='<legend>TMC2209 pulse sequence</legend><div class="routineBuilder"><label>Motor<select id="tmcRoutineMotor"><option value="1">Motor 1</option></select></label><label>On ms<input id="tmcRoutineOn" type="number" min="1" value="1000"></label><label>Off ms<input id="tmcRoutineOff" type="number" min="1" value="1000"></label><label>RPM<input id="tmcRoutineRpm" type="number" min="1" max="120" value="30"></label><label>Direction<select id="tmcRoutineDirection"><option value="1">Forward / CW</option><option value="-1">Reverse / CCW</option></select></label></div><p class="hint">Saved pulses run in sequence. Manual prime pulses can overlap; stop priming before starting a routine.</p>';
+  elements.motorRoutineSettings.after(routine);
+  let channelKey='';
+  function refresh() {
+    const dispenser=state.latest?.dispenser||{},stepper=tmc(),drivers=dispenser.drivers;
+    const automated=state.latest?.routine?.active||state.latest?.geo?.active;
+    const ready=dispenser.armed&&!dispenser.faulted&&dispenser.interlockOpen!==false&&!drivers?.pending;
+    const locked=state.busy||dispenser.armed||dispenser.dispensing||automated;
+    panel.disabled=!stepper?.enabled;
+    restart.hidden=!drivers?.pending;
+    $('driverRestart').disabled=!!(state.busy||dispenser.armed||dispenser.dispensing||automated);
+    dcPins.refresh(locked||!drivers?.drv8871);stepPins.refresh(locked||!drivers?.tmc2209);
+    const newKey=JSON.stringify([drivers?.pins?.tx,drivers?.pins?.rx]);
+    if(newKey!==uartKey){uartKey=newKey;$('tmcTxPin').value=drivers?.pins?.tx??'';$('tmcRxPin').value=drivers?.pins?.rx??'';}
+    for(const input of uart.querySelectorAll('input,button'))input.disabled=locked;
+    if(!stepper?.enabled){
+      $('tmcState').textContent=state.latest?'TMC2209 is not enabled in this firmware. Enable motor-driver support and upload once; pins can then be assigned here.':'Connect to check support. TMC2209 needs a dispenser build with motor drivers enabled.';
+    }else{
+      const rows=stepper.channels||[],key=JSON.stringify(rows.map(row=>row.slice(0,5)));
+      if(key!==channelKey){
+        channelKey=key;
+        for(const select of [$('tmcMotor'),$('tmcRoutineMotor')]){
+          const previous=select.value;select.replaceChildren();
+          for(const row of rows){const option=document.createElement('option');option.value=row[0];option.textContent=`Motor ${row[0]} · STEP ${row[1]} / DIR ${row[2]} / EN ${row[3]}`;select.append(option);}
+          if(rows.some(row=>String(row[0])===previous))select.value=previous;
+        }
+        settingsFromState();
+      }
+      const row=selected(),running=!!row?.[9],canStart=ready&&row?.[5]&&!running&&!state.busy&&!automated&&!dispenser.gpioActive;
+      for(const id of controls)$(id).disabled=!canStart;
+      $('tmcInit').disabled=locked;$('tmcApply').disabled=locked;
+      $('tmcStop').disabled=!rows.length;
+      $('tmcPrimeAll').hidden=rows.length<2;
+      $('tmcPrimeAll').disabled=!(ready&&!state.busy&&!automated&&!dispenser.gpioActive&&rows.every(row=>row[5]&&!row[9]));
+      $('tmcDuration').max=stepper.maxRunMs;$('tmcRpm').max=stepper.maxRpm;$('tmcCurrent').max=stepper.maxRmsMa;
+      $('tmcState').textContent=!rows.length?'No steppers configured. Use Assign pins / add motor.':running?`Selected motor running · ${row[10]} ms remaining`:row?.[5]?`UART verified · ${row[6]} mA requested / ${row[8]} mA programmed RMS · ${row[7]} microsteps · max ${stepper.maxRunMs} ms`:'UART not verified. Power the driver, disarm, then Check UART.';
+    }
+    const dcMotor=dispenser.motor,rows=dcMotor?.channels||[];
+    primeDc.hidden=rows.length<2;
+    primeDc.disabled=!(ready&&!state.busy&&!automated&&!dispenser.gpioActive&&dcMotor&&rows.every(row=>row[4]?row[4]!=='drive':dcMotor.mode!=='drive'));
+    if(dcMotor){const suffix=elements.motorChannel.value?':'+elements.motorChannel.value:'';elements.motorStop.dataset.command='MotorStop'+suffix;elements.motorCoast.dataset.command='MotorCoast'+suffix;}
+  }
+  async function saveRoutine(name,delay,repeats) {
+    const stepper=tmc();if(!stepper?.enabled)throw new Error('TMC2209 support is not enabled');
+    const motor=readInteger($('tmcRoutineMotor'),1,4,'Stepper motor');
+    if(!stepper.channels.some(row=>row[0]===motor))throw new Error('Choose a configured stepper motor');
+    const on=readInteger($('tmcRoutineOn'),1,stepper.maxRunMs,'Stepper on time');
+    const off=readInteger($('tmcRoutineOff'),1,4294967295,'Stepper off time');
+    const rpm=readInteger($('tmcRoutineRpm'),1,stepper.maxRpm,'Stepper RPM');
+    await commandBatches([`RoutineCreate:${name}`,`RoutineAdd:${name}:START_WAIT:${delay}`,
+      `RoutineAdd:${name}:TMC:${on},${off},${rpm},${$('tmcRoutineDirection').value},${motor}`,
+      `RoutineRepeat:${name}:${repeats}`,`RoutineSave:${name}`]);
+  }
+  return {refresh,saveRoutine,routineMode(kind){routine.hidden=kind!=='tmcPulse';}};
+}
+
+motorDriverControls = installMotorDriverControls();
+motorDriverControls.refresh();
+updateActions();

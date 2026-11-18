@@ -23,9 +23,6 @@ bool isEmergencyCommand(String line) {
     line.equalsIgnoreCase("DispenserDisarm") || line.equalsIgnoreCase("DispenserOff")
 #if APP_DRONE_DISPENSER_ADDON_ENABLED
     || line.equalsIgnoreCase("GPIO26:OFF")
-#if DRONE_CFG_ENABLE_DRV8871
-    || line.equalsIgnoreCase("MotorStop") || line.equalsIgnoreCase("MotorCoast")
-#endif
 #endif
     ;
 }
@@ -384,7 +381,7 @@ bool CommandDispatcher::submitEmergency(
 
   // Raise the latch before waiting for the admission mutex. The control task
   // will discard a normal command it may already have received, while the
-  // queue reset makes StopAll the next command that can execute. Routing stays
+  // queue reset makes the requested stop the next command that can execute. Routing stays
   // on the single control task instead of racing an AsyncTCP/BLE callback.
   emergencyPending_.store(true, std::memory_order_release);
   if (!lockSubmitter(portMAX_DELAY)) {
@@ -400,14 +397,14 @@ bool CommandDispatcher::submitEmergency(
 
   if (queued != pdTRUE) {
     emergencyPending_.store(false, std::memory_order_release);
-    reject(source, requestId, "could not queue emergency StopAll barrier");
+    reject(source, requestId, "could not queue priority stop barrier");
     return false;
   }
 
   acceptedCount_.fetch_add(1, std::memory_order_relaxed);
   events_.publish(
     EventLevel::WARNING,
-    "[QUEUED] emergency StopAll barrier accepted; discarded=" + String(discarded),
+    "[QUEUED] priority stop barrier accepted; discarded=" + String(discarded),
     source,
     requestId
   );

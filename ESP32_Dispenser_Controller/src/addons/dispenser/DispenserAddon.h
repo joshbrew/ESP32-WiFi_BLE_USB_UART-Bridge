@@ -5,6 +5,8 @@
 
 #include "../../config/AppConfig.h"
 #include "../DeviceAddon.h"
+#include "../../hardware/Tmc2209Motor.h"
+#include "../../hardware/Drv8871Motor.h"
 
 // Primary hardware profile for the aircraft. This class deliberately exposes
 // application words (arm, dispense, stop) instead of raw GPIO writes. Every
@@ -83,16 +85,7 @@ class DispenserAddon : public DeviceAddon {
     bool announce,
     bool fault
   );
-#if DRONE_CFG_ENABLE_DRV8871
-  enum class MotorMode { Coast, Drive, Brake };
-  bool handleMotorCommand(const String &command, CommandSource source, const String &requestId);
   uint32_t motorRunLimit() const;
-  bool driveMotor(uint8_t index, uint8_t level);
-  void idleMotor(bool brake);
-  MotorMode motorMode_ = MotorMode::Coast;
-  uint8_t motorLevels_[AppConfig::DRV8871_MOTOR_COUNT]{};
-  uint8_t motorIndex_ = 0;
-#endif
   bool arm(CommandSource source, const String &requestId);
   void applyInactivePin(int pin) const;
   void writeOutput(bool active);
@@ -152,6 +145,10 @@ class DispenserAddon : public DeviceAddon {
     const String &message
   ) const;
 
+  DriverWiring wiring_{}, pendingWiring_{};
+  bool wiringPending_ = false;
+  Drv8871Motor drv_;
+  Tmc2209Motor tmc_;
   EventBus &events_;
   int outputPin_;
   uint8_t pins_[AppConfig::DISPENSER_MAX_OUTPUTS]{};

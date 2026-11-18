@@ -388,8 +388,8 @@ Start and Pulse require Arm and a level of 1–255.
 
 Add a saved motor step with `RoutineAdd:name:MOTOR:onMs,offMs,level[,motor]`.
 For example, `RoutineAdd:dots:MOTOR:250,100,128,2` targets motor 2.
-A routine can sequence steps for different motors. Only one motor or GPIO
-output can run at a time. The motor
+A routine sequences steps for different motors. Manual motor channels can
+run concurrently for priming; GPIO dispensing stays exclusive. The motor
 runs at that step's drive level, coasts, and waits for the off period before the
 next step. Use a positive off period for repeated pulses, including `FOREVER`.
 A single bounded steady run uses off time 0 and repeat count 1. The motor and
@@ -415,3 +415,30 @@ Tokens can contain up to 24 letters, digits, hyphens or underscores.
 On S3 builds the heartbeat is white. On classic boards the activity LED pulses.
 Enable the browser's **Heartbeat · every 2 s** toggle for repeated range tests.
 Keep the tab visible. The timer belongs to that browser page.
+
+## Runtime driver pins, stepper motion and priming
+
+See [MOTOR_DRIVERS.md](docs/MOTOR_DRIVERS.md) for wiring and enable steps.
+`MotorPins:motor,IN1,IN2`, `TMCPins:motor,STEP,DIR,EN,address`, and
+`TMCUART:TX,RX` save validated pin assignments. `DriverPinsStatus` prints the
+desired map; `DriverPinsReset` restores compiled defaults. Disarm before editing.
+Restart after saving; motion remains blocked until the saved map is applied.
+Motor numbers 1..4 are consecutive, subject to available pins; `MotorPins:n,OFF`
+or `TMCPins:n,OFF` removes only the last driver.
+
+`TMCInit` verifies UART/configuration while disarmed. `TMCStatus` reports cached
+state. `TMCMove:signedDegrees,RPM[,motor]`, `TMCRun:RPM,+1|-1[,motor]` and
+`TMCPulse:ms,RPM,+1|-1[,motor]` require Arm. `TMCCurrent:mA[,motor]` and
+`TMCMicrosteps:value[,motor]` require disarming; the NEMA14 profile caps RMS
+current at 350 mA and speed at 120 RPM. Stepper motion is limited to 30 seconds.
+
+`MotorStop[:motor]` / `MotorCoast[:motor]` and `TMCStop[:motor]` /
+`TMCDisable[:motor]` target one channel or all channels of that type if no motor
+number is supplied. TMC stops release holding torque. During automation, a
+motor stop cancels the entire routine/coordinate run so another pulse cannot
+restart it. Manual motor channels can run together for priming, with separate
+timers; saved routines remain sequential. Disarm/StopAll/DispenseStop and
+interlock/arm expiry stop all channels.
+
+`RoutineAdd:name:TMC:onMs,offMs,RPM,direction[,motor]` stores a stepper pulse and
+positive off period. Use normal `RoutineRepeat` and `RoutineSave` commands.

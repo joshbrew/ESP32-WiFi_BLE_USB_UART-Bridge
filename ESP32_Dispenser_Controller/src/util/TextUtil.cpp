@@ -122,6 +122,20 @@ bool parseMotorPulse(const String &command, uint32_t &duration, uint32_t &level,
   return true;
 }
 
+bool parseTmcPulse(const String &command, uint32_t &duration, uint32_t &rpm, long &direction, uint32_t *motor) {
+  if (!startsWithIgnoreCase(command, "TMCPulse:")) return false;
+  const String args = command.substring(9);
+  const int a = args.indexOf(','), b = args.indexOf(',', a + 1), c = args.indexOf(',', b + 1);
+  uint32_t number = 1;
+  if (a < 0 || b < 0 || !parseUnsigned32(args.substring(0, a), duration) || !duration ||
+      !parseUnsigned32(args.substring(a + 1, b), rpm) || !rpm ||
+      !parseLong(c < 0 ? args.substring(b + 1) : args.substring(b + 1, c), direction) ||
+      (direction != 1 && direction != -1) ||
+      (c >= 0 && (!parseUnsigned32(args.substring(c + 1), number) || !number))) return false;
+  if (motor) *motor = number;
+  return true;
+}
+
 bool parseDispense(const String &command, int &pin, uint32_t &duration) {
   pin = -1;
   if (startsWithIgnoreCase(command, "Dispense:"))
@@ -132,6 +146,20 @@ bool parseDispense(const String &command, int &pin, uint32_t &duration) {
   if (comma < 0 || !parseLong(command.substring(12, comma), parsed) || parsed < 0 || parsed > 39 ||
       !parseUnsigned32(command.substring(comma + 1), duration) || !duration) return false;
   pin = static_cast<int>(parsed); return true;
+}
+
+bool isMotorStop(const String &input) {
+  String line = input; line.trim();
+  const char *const names[] = {"MotorStop", "MotorCoast", "TMCStop", "TMCDisable"};
+  for (const char *name : names) {
+    if (line.equalsIgnoreCase(name)) return true;
+    const String prefix = String(name) + ":";
+    if (startsWithIgnoreCase(line, prefix.c_str())) {
+      const String number = line.substring(prefix.length());
+      return number.length() == 1 && number[0] >= '1' && number[0] <= '4';
+    }
+  }
+  return false;
 }
 
 String boolWord(bool value) {

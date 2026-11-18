@@ -810,3 +810,23 @@ received browser commands rather than a free-running device timer.
 
 Manual commands `Heartbeat` and `Heartbeat:range1` also produce a pulse and
 reply. No arming is required, and heartbeat does not activate the payload.
+
+## Open the standalone console
+
+Open `web/standalone_console.html` in Chrome or Edge. Join the controller's
+Wi-Fi access point; the file automatically targets `http://192.168.4.1`
+and retries if you join Wi-Fi after opening it. It needs no internet or local server.
+Allow local network access if the browser asks. If file access is blocked by
+browser policy, use **Open controller page** to reach the hosted interface.
+
+Alternatively click **Connect BLE** and choose the controller. Wi-Fi is not
+required for BLE, and browser permission requires this click. BLE must be
+enabled in firmware and supported by the browser. Heartbeat and commands use
+the selected transport. Disconnect BLE to resume automatic Wi-Fi polling.
+
+For a controller on another address, expand **Connection address**, enter its
+address and choose **Use address**. **Auto Wi-Fi** returns to the access point.
+Old saved addresses do not override the automatic access-point target.
+The standalone HTML includes all its assets and can be copied by itself.
+The repository's `Standalone_Consoles` folder contains named copies for all four
+variants; refresh these with `python tools/build_standalone_consoles.py` after UI changes.

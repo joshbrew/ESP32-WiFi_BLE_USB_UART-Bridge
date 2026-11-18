@@ -15,7 +15,7 @@ param(
     [ValidateSet('usb','com')][string]$Serial='usb',
     [ValidateRange(0,64)][int]$Jobs=2,
     [ValidateRange(9600,2000000)][int]$Baud=921600,
-    [switch]$Lte,[switch]$Clean,[switch]$SkipUnchanged,[switch]$DryRun,
+    [switch]$Lte,[switch]$MotorDrivers,[switch]$Clean,[switch]$SkipUnchanged,[switch]$DryRun,
     [string]$ToolsDirectory=(Join-Path $env:LOCALAPPDATA 'ESP32ControllerTools')
 )
 $ErrorActionPreference='Stop'
@@ -72,9 +72,10 @@ function Install-ArduinoCli($Environment){
         $Environment.Cli=Join-Path $destination 'arduino-cli.exe'
     }finally{Remove-OwnedTemporary $temp $Environment.Tools}
 }
-function Get-ControllerLibraries([bool]$Cellular){
+function Get-ControllerLibraries([bool]$Cellular,[bool]$Motors=$false){
     $libraries=@([pscustomobject]@{Name='Async TCP';Version='3.5.0'},[pscustomobject]@{Name='ESP Async WebServer';Version='3.12.1'})
     if($Cellular){$libraries+=@([pscustomobject]@{Name='TinyGSM';Version='0.12.0'},[pscustomobject]@{Name='ArduinoMqttClient';Version='0.1.8'},[pscustomobject]@{Name='ArduinoJson';Version='7.3.2'})}
+    if($Motors){$libraries+=@([pscustomobject]@{Name='TMCStepper';Version='0.7.3'},[pscustomobject]@{Name='FastAccelStepper';Version='2.0.1'})}
     return $libraries
 }
 function Test-ControllerLibrary($Environment,$Library){
@@ -86,7 +87,7 @@ function Test-ControllerLibrary($Environment,$Library){
     }
     return $false
 }
-function Ensure-ControllerEnvironment($Environment,[bool]$Cellular,[switch]$ToolsOnly){
+function Ensure-ControllerEnvironment($Environment,[bool]$Cellular,[switch]$ToolsOnly,[bool]$Motors=$false){
     if(-not $Environment.Cli){Install-ArduinoCli $Environment}
     $versionText=(& $Environment.Cli version --json | Out-String)
     if($LASTEXITCODE -ne 0){throw 'Arduino CLI could not run.'}
@@ -102,32 +103,38 @@ function Ensure-ControllerEnvironment($Environment,[bool]$Cellular,[switch]$Tool
         Invoke-ControllerCli $Environment @('core','install',"esp32:esp32@$script:CoreVersion")
     }
     if(-not $ToolsOnly){
-        $missing=@(Get-ControllerLibraries $Cellular | Where-Object {-not(Test-ControllerLibrary $Environment $_)})
+        $missing=@(Get-ControllerLibraries $Cellular $Motors | Where-Object {-not(Test-ControllerLibrary $Environment $_)})
         if($missing.Count){Invoke-ControllerCli $Environment @('lib','update-index')}
         foreach($library in $missing){Invoke-ControllerCli $Environment @('lib','install',"$($library.Name)@$($library.Version)",'--no-deps')}
     }
     Write-Host 'CLI tools and requested packages are ready.' -ForegroundColor Green
 }
-function Get-ControllerCompilePlan([string]$Name,$Environment,[string]$SerialRoute,[bool]$Cellular,[int]$ParallelJobs,[bool]$Fresh,[string]$Repository=$script:ControllerRoot){
+function Get-ControllerCompilePlan([string]$Name,$Environment,[string]$SerialRoute,[bool]$Cellular,[int]$ParallelJobs,[bool]$Fresh,[string]$Repository=$script:ControllerRoot,[bool]$Motors=$false){
     if(-not $script:ControllerTargets.ContainsKey($Name)){throw 'Compile needs -Variant; run controller help for the four names.'}
     $s3=$Name.StartsWith('s3-')
     if($Cellular -and -not $s3){throw 'LTE is supported by the S3 variants only.'}
+    if($Motors -and $Name -notmatch 'dispenser$'){throw 'Motor drivers require s3-dispenser or lolin32-dispenser firmware.'}
     if($s3){$cdc='cdc';if($SerialRoute -eq 'com'){$cdc='default'};$fqbn="esp32:esp32:esp32s3:CPUFreq=240,FlashMode=qio,FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB,USBMode=hwcdc,CDCOnBoot=$cdc"}
     else{$fqbn='esp32:esp32:lolin32:CPUFreq=240,PartitionScheme=min_spiffs'}
     $sketch=Join-Path $Repository $script:ControllerTargets[$Name]
     if(-not(Test-Path -LiteralPath (Join-Path $sketch ($script:ControllerTargets[$Name]+'.ino')))){throw 'Sketch not found. Run this tool from a complete repository checkout.'}
     $sourceLte=$false
     if($s3){foreach($relative in @('QuickConfig.h','src\config\AppConfig.h')){$file=Join-Path $sketch $relative;if((Test-Path -LiteralPath $file) -and [IO.File]::ReadAllText($file) -match '(?m)^\s*#define\s+(?:APP_ENABLE_LTE|DRONE_CFG_ENABLE_LTE)\s+1(?:\s|$)'){$sourceLte=$true}}}
+    $sourceMotors=$false
+    foreach($relative in @('QuickConfig.h','src\config\AppConfig.h')){$file=Join-Path $sketch $relative;if((Test-Path -LiteralPath $file) -and [IO.File]::ReadAllText($file) -match '(?m)^\s*#define\s+DRONE_CFG_ENABLE_(?:DRV8871|TMC2209)\s+1(?:\s|$)'){$sourceMotors=$true}}
     $enabled=$Cellular -or $sourceLte
     if($enabled -and -not(Test-Path -LiteralPath (Join-Path $sketch 'src\config\LtePrivate.h'))){throw 'LTE needs src\config\LtePrivate.h in the selected sketch. Follow docs/LTE_FIELD_ACCESS.md before compiling with LTE.'}
     $profile="$SerialRoute-source";if($Cellular){$profile="$SerialRoute-lte"}
+    if($Motors){$profile+="-motors"}
     $cache=Join-Path $Environment.Tools "build\$Name\$profile"
     $export=Join-Path $Environment.Tools ('export-'+[guid]::NewGuid().ToString('N'))
     $arguments=@('compile','--fqbn',$fqbn,'--jobs',[string]$ParallelJobs,'--build-path',$cache,'--output-dir',$export)
     if($Fresh){$arguments+='--clean'}
-    if($Cellular){$arguments+=@('--build-property','compiler.cpp.extra_flags=-DAPP_ENABLE_LTE=1')}
+    $flags=@();if($Cellular){$flags+='-DAPP_ENABLE_LTE=1'}
+    if($Motors){$flags+=@('-DDRONE_CFG_ENABLE_DRV8871=1','-DDRONE_CFG_ENABLE_TMC2209=1')}
+    if($flags.Count){$arguments+=@('--build-property',('compiler.cpp.extra_flags='+($flags -join ' ')))}
     $arguments+=$sketch
-    [pscustomobject]@{Variant=$Name;Sketch=$sketch;Fqbn=$fqbn;Cellular=$enabled;Arguments=$arguments;Cache=$cache;Export=$export;Output=(Join-Path $Repository "precompiled\$Name")}
+    [pscustomobject]@{Variant=$Name;Sketch=$sketch;Fqbn=$fqbn;Cellular=$enabled;MotorDrivers=($Motors -or $sourceMotors);Arguments=$arguments;Cache=$cache;Export=$export;Output=(Join-Path $Repository "precompiled\$Name")}
 }
 function Find-ControllerEsptool($Environment){
     foreach($root in @($Environment.Data,(Join-Path $env:LOCALAPPDATA 'Arduino15'))){
@@ -166,9 +173,10 @@ function Publish-ControllerBuild($Plan,$Environment){
 function Show-ControllerHelp {
     Write-Output @'
 ESP32 Controller CLI (Windows PowerShell 5.1+)
+  controller compile -Variant s3-dispenser -MotorDrivers
   controller ports
   controller doctor
-  controller setup [-Lte]
+  controller setup [-Lte] [-MotorDrivers]
   controller field-setup [-Variant s3-dispenser] [-DryRun]
   controller home-setup [-Variant s3-dispenser] [-DryRun]
   controller modem-provision [-Variant s3-dispenser] [-Port COM24] [-DryRun]
@@ -199,15 +207,15 @@ function Invoke-ControllerCommand {
         Write-Output "ESP32 core $script:CoreVersion : $(if(Test-Path -LiteralPath (Join-Path $environment.Core 'platform.txt')){'ready'}else{'missing'})"
         Write-Output "CLI data: $($environment.Data)"
         Write-Output "Private libraries: $($environment.User)\libraries"
-        foreach($library in Get-ControllerLibraries $Lte.IsPresent){Write-Output "$($library.Name) $($library.Version): $(if(Test-ControllerLibrary $environment $library){'ready'}else{'setup needed'})"}
+        foreach($library in Get-ControllerLibraries $Lte.IsPresent $MotorDrivers.IsPresent){Write-Output "$($library.Name) $($library.Version): $(if(Test-ControllerLibrary $environment $library){'ready'}else{'setup needed'})"}
         Write-Output "esptool: $(Find-ControllerEsptool $environment)";return
     }
-    if($Command -eq 'setup'){if($DryRun){Write-Output 'Dry run: setup would install missing CLI/core/libraries; no changes made.';return};Ensure-ControllerEnvironment $environment $Lte.IsPresent;return}
+    if($Command -eq 'setup'){if($DryRun){Write-Output 'Dry run: setup would install missing CLI/core/libraries; no changes made.';return};Ensure-ControllerEnvironment $environment $Lte.IsPresent -Motors $MotorDrivers.IsPresent;return}
     if($Command -eq 'compile'){
-        $plan=Get-ControllerCompilePlan $Variant $environment $Serial $Lte.IsPresent $Jobs $Clean.IsPresent
+        $plan=Get-ControllerCompilePlan $Variant $environment $Serial $Lte.IsPresent $Jobs $Clean.IsPresent -Motors $MotorDrivers.IsPresent
         Write-Host "Compile: $Variant`nBoard settings: $($plan.Fqbn)`nOutput: $($plan.Output)" -ForegroundColor Cyan
         if($DryRun){Write-Output ('Dry run: no installation, compilation or serial access. CLI arguments: '+($plan.Arguments -join ' '));return}
-        Ensure-ControllerEnvironment $environment $plan.Cellular
+        Ensure-ControllerEnvironment $environment $plan.Cellular -Motors $plan.MotorDrivers
         try{Invoke-ControllerCli $environment $plan.Arguments;Publish-ControllerBuild $plan $environment}finally{Remove-OwnedTemporary $plan.Export $environment.Tools}
         Write-Host 'Compile complete. Use controller flash for repeat uploads without compiling.' -ForegroundColor Green;return
     }

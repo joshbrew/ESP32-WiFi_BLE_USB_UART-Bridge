@@ -66,6 +66,7 @@ const char *DispenserAddon::name() const {
 }
 
 void DispenserAddon::begin() {
+  wiring_.load(); pendingWiring_ = wiring_; wiringPending_ = false;
   setDefaults();
   memset(profiles_, 0, sizeof(profiles_));
   if (!loadProfileLibrary()) {
@@ -81,16 +82,8 @@ void DispenserAddon::begin() {
     pinMode(AppConfig::PIN_DISPENSER_INTERLOCK, INPUT);
   }
 
-#if DRONE_CFG_ENABLE_DRV8871
-  for (size_t i = 0; i < AppConfig::DRV8871_MOTOR_COUNT; ++i) {
-    const auto &motor = AppConfig::DRV8871_MOTORS[i];
-    pinMode(motor.in1, OUTPUT);
-    pinMode(motor.in2, OUTPUT);
-    digitalWrite(motor.in1, LOW);
-    digitalWrite(motor.in2, LOW);
-    motorLevels_[i] = 128;
-  }
-#endif
+  drv_.begin(wiring_);
+  tmc_.begin(wiring_);
   initialized_ = true;
   lastServiceAtMs_ = millis();
   armed_ = false;
@@ -128,6 +121,11 @@ void DispenserAddon::service() {
     );
     return;
   }
+
+  drv_.service();
+  const bool tmcWasRunning = tmc_.busy();
+  tmc_.service();
+  if (tmcWasRunning && !tmc_.busy()) publish(EventLevel::STATUS, CommandSource::INTERNAL, String(), "TMC2209 motion complete or run limit; coils released");
 
   if (
     dispensing_ &&
@@ -176,9 +174,49 @@ bool DispenserAddon::handleCommand(
 ) {
   String work = command;
   work.trim();
-#if DRONE_CFG_ENABLE_DRV8871
-  if (handleMotorCommand(work, source, requestId)) return true;
-#endif
+  if (work.equalsIgnoreCase("DriverPinsStatus")) {
+    publish(EventLevel::STATUS, source, requestId, pendingWiring_.stateJson() +
+      (wiringPending_ ? " reboot required" : " active"));
+    return true;
+  }
+  if (work.equalsIgnoreCase("DriverPinsReset") || TextUtil::startsWithIgnoreCase(work, "MotorPins:") ||
+      TextUtil::startsWithIgnoreCase(work, "TMCPins:") || TextUtil::startsWithIgnoreCase(work, "TMCUART:")) {
+    if (!DRONE_CFG_ENABLE_DRV8871 && !DRONE_CFG_ENABLE_TMC2209) {
+      error(source, requestId, "motor driver support is not enabled in this firmware build"); return true;
+    }
+    if (armed_ || isBusy()) { error(source, requestId, "Disarm before changing driver pins"); return true; }
+    DriverWiring candidate = pendingWiring_; String reason;
+    if (work.equalsIgnoreCase("DriverPinsReset")) candidate.defaults();
+    else if (!candidate.update(work, reason)) { error(source, requestId, reason); return true; }
+    if (!candidate.valid(reason)) { error(source, requestId, reason); return true; }
+    for (uint8_t i = 0; i < pinCount_; ++i) {
+      if (candidate.owns(pins_[i])) { error(source, requestId, "driver pin overlaps a configured payload output"); return true; }
+    }
+    if (!candidate.save()) { error(source, requestId, "driver pin save/readback failed; active wiring unchanged"); return true; }
+    stopDispense(source, requestId, "driver wiring saved", false);
+    pendingWiring_ = candidate; wiringPending_ = true;
+    publish(EventLevel::STATUS, source, requestId, "Driver pins saved and verified. Reboot to apply; all motion is blocked until restart.");
+    return true;
+  }
+  if (TextUtil::startsWithIgnoreCase(work, "TMC")) {
+    String readiness, message; bool success = false;
+    const bool ready = canStartRoutine(readiness);
+    uint32_t limit = AppConfig::TMC2209_MAX_RUN_MS;
+    if (maxPulseMs_ && maxPulseMs_ < limit) limit = maxPulseMs_;
+    if (armed_ && armTimeoutMs_ && remainingArmMs(millis()) < limit) limit = remainingArmMs(millis());
+    if (tmc_.command(work, armed_, ready, dispensing_, limit, message, success)) {
+      publish(success ? EventLevel::STATUS : EventLevel::ERROR, source, requestId, message);
+      return true;
+    }
+  }
+  if (TextUtil::startsWithIgnoreCase(work, "Motor")) {
+    String readiness, message; bool success = false;
+    uint32_t limit = motorRunLimit();
+    if (armed_ && armTimeoutMs_ && remainingArmMs(millis()) < limit) limit = remainingArmMs(millis());
+    if (drv_.command(work, armed_, canStartRoutine(readiness), dispensing_, limit, message, success)) {
+      publish(success ? EventLevel::STATUS : EventLevel::ERROR, source, requestId, message); return true;
+    }
+  }
 
   if (work.equalsIgnoreCase("Arm") || work.equalsIgnoreCase("DispenserArm")) {
     arm(source, requestId);
@@ -522,15 +560,15 @@ bool DispenserAddon::stopAll(CommandSource source, const String &requestId) {
 }
 
 bool DispenserAddon::isBusy() const {
-  return dispensing_;
+  return dispensing_ || drv_.busy() || tmc_.busy();
 }
 
 bool DispenserAddon::hasActiveOutput() const {
-  return dispensing_;
+  return dispensing_ || drv_.busy() || tmc_.busy();
 }
 
 bool DispenserAddon::hasTimedOperationActive() const {
-  return dispensing_ || armed_;
+  return dispensing_ || armed_ || drv_.busy() || tmc_.busy();
 }
 
 bool DispenserAddon::canStartRoutine(String &reason) const {
@@ -542,6 +580,7 @@ bool DispenserAddon::canStartRoutine(String &reason) const {
     reason = "clear the dispenser fault by checking the interlock and sending Arm";
     return false;
   }
+  if (wiringPending_) { reason = "driver pins were saved; reboot before arming"; return false; }
   if (!armed_) {
     reason = "send Arm before starting a payload routine";
     return false;
@@ -558,6 +597,9 @@ bool DispenserAddon::blocksExternalCommandDuringRoutine(const String &command) c
   String work = command;
   work.trim();
   return
+    work.equalsIgnoreCase("DriverPinsReset") || TextUtil::startsWithIgnoreCase(work, "MotorPins:") ||
+    (TextUtil::startsWithIgnoreCase(work, "TMC") && !work.equalsIgnoreCase("TMCStatus") &&
+      !work.equalsIgnoreCase("TMCStop") && !work.equalsIgnoreCase("TMCDisable")) ||
 #if DRONE_CFG_ENABLE_DRV8871
     work.equalsIgnoreCase("MotorStart") ||
     TextUtil::startsWithIgnoreCase(work, "MotorStart:") ||
@@ -585,21 +627,14 @@ bool DispenserAddon::blocksExternalCommandDuringRoutine(const String &command) c
 }
 
 bool DispenserAddon::validateRoutineCommand(const String &command, String &reason) const {
-#if DRONE_CFG_ENABLE_DRV8871
-  if (TextUtil::startsWithIgnoreCase(command, "MotorPulse:")) {
-    uint32_t duration = 0, level = 0, motor = 0;
-    if (!TextUtil::parseMotorPulse(command, duration, level, &motor) ||
-        motor > AppConfig::DRV8871_MOTOR_COUNT) {
-      reason = "routine references an unconfigured DRV8871 motor";
-      return false;
-    }
-    if (duration > motorRunLimit()) {
-      reason = "routine motor pulse exceeds the active motor or payload limit";
-      return false;
-    }
-    return true;
+  if (TextUtil::startsWithIgnoreCase(command, "TMCPulse:")) {
+    uint32_t limit = AppConfig::TMC2209_MAX_RUN_MS;
+    if (maxPulseMs_ && maxPulseMs_ < limit) limit = maxPulseMs_;
+    return tmc_.validatePulse(command, limit, reason);
   }
-#endif
+
+  if (TextUtil::startsWithIgnoreCase(command, "MotorPulse:"))
+    return drv_.validatePulse(command, motorRunLimit(), reason);
   uint32_t duration = 0;
   int pin = -1;
   if (!TextUtil::parseDispense(command, pin, duration) || (pin >= 0 && !ownsPin(pin)) || (maxPulseMs_ && duration > maxPulseMs_)) {
@@ -625,7 +660,7 @@ void DispenserAddon::appendStateJson(String &json, bool compact) const {
     ",\"addon\":{\"name\":\"drone-dispenser\",\"active\":true,\"dispenser\":true,\"stepper\":false,\"dac\":false},\"dispenser\":{"
     "\"pin\":%d,\"activeHigh\":%s,\"armed\":%s,\"dispensing\":%s,\"faulted\":%s,\"interlockConfigured\":%s,\"interlockOpen\":%s,"
     "\"remainingMs\":%lu,\"armRemainingMs\":%lu,\"maxPulseMs\":%lu,\"armTimeoutMs\":%lu,\"count\":%lu,\"maxStopLatenessMs\":%lu,\"profile\":\"",
-    outputPin_, activeHigh_ ? "true" : "false", armed_ ? "true" : "false", dispensing_ ? "true" : "false", faulted_ ? "true" : "false",
+    outputPin_, activeHigh_ ? "true" : "false", armed_ ? "true" : "false", isBusy() ? "true" : "false", faulted_ ? "true" : "false",
     AppConfig::PIN_DISPENSER_INTERLOCK >= 0 ? "true" : "false", interlockOpen() ? "true" : "false",
     static_cast<unsigned long>(remainingDispenseMs(now)), static_cast<unsigned long>(remainingArmMs(now)),
     static_cast<unsigned long>(maxPulseMs_), static_cast<unsigned long>(armTimeoutMs_),
@@ -641,22 +676,16 @@ void DispenserAddon::appendStateJson(String &json, bool compact) const {
     json += fields; json += TextUtil::jsonEscape(lastReason_); json += '"';
   }
 #if DRONE_CFG_ENABLE_DRV8871
-  const char *motorMode = motorMode_ == MotorMode::Drive ? "drive" :
-    motorMode_ == MotorMode::Brake ? "brake" : "coast";
-  const auto &activePins = AppConfig::DRV8871_MOTORS[motorIndex_];
-  snprintf(fields, sizeof(fields),
-    ",\"motor\":{\"mode\":\"%s\",\"level\":%u,\"maxRunMs\":%lu,\"in1\":%d,\"in2\":%d,\"activeMotor\":%u,\"channels\":[",
-    motorMode, static_cast<unsigned>(motorLevels_[motorIndex_]), static_cast<unsigned long>(motorRunLimit()),
-    activePins.in1, activePins.in2, static_cast<unsigned>(motorIndex_ + 1));
-  json += fields;
-  for (size_t i = 0; i < AppConfig::DRV8871_MOTOR_COUNT; ++i) {
-    if (i) json += ',';
-    const auto &pins = AppConfig::DRV8871_MOTORS[i];
-    snprintf(fields, sizeof(fields), "[%u,%d,%d,%u]", static_cast<unsigned>(i + 1),
-      pins.in1, pins.in2, static_cast<unsigned>(motorLevels_[i]));
-    json += fields;
-  }
-  json += "]}";
+  json += ",\"motor\":" + drv_.stateJson(motorRunLimit());
+#endif
+#if DRONE_CFG_ENABLE_TMC2209
+  json += ",\"tmc2209\":" + tmc_.stateJson();
+#endif
+#if DRONE_CFG_ENABLE_DRV8871 || DRONE_CFG_ENABLE_TMC2209
+  json += ",\"gpioActive\":" + String(dispensing_ ? "true" : "false");
+  json += ",\"drivers\":{\"drv8871\":" + String(DRONE_CFG_ENABLE_DRV8871 ? "true" : "false") +
+    ",\"tmc2209\":" + String(DRONE_CFG_ENABLE_TMC2209 ? "true" : "false") +
+    ",\"pending\":" + String(wiringPending_ ? "true" : "false") + ",\"pins\":" + pendingWiring_.stateJson() + "}";
 #endif
   snprintf(fields, sizeof(fields), ",\"activePin\":%d,\"defaultPin\":%d,\"outputsCapacity\":%u,\"pins\":[", activePin_, AppConfig::PIN_DISPENSER, static_cast<unsigned>(AppConfig::DISPENSER_MAX_OUTPUTS));
   json += fields;
@@ -674,6 +703,9 @@ void DispenserAddon::publishHelp(
   CommandSource source,
   const String &requestId
 ) const {
+  events.publish(EventLevel::STATUS,
+    "Driver pins: DriverPinsStatus DriverPinsReset MotorPins:motor,IN1,IN2 TMCPins:motor,STEP,DIR,EN,address TMCUART:TX,RX (save then Reboot). TMC2209: TMCInit TMCStatus TMCMove:signedDegrees,RPM[,motor] TMCRun:RPM,+1|-1[,motor] TMCPulse:ms,RPM,+1|-1[,motor] TMCStop TMCDisable TMCCurrent:mA[,motor] TMCMicrosteps:value[,motor]",
+    source, requestId);
   events.publish(
     EventLevel::STATUS,
     "Dispenser: Arm Disarm Dispense:ms DispensePin:pin,ms DispenseStop DispenserStatus StopAll",
@@ -725,128 +757,10 @@ void DispenserAddon::publishStatus(
   );
 }
 
-#if DRONE_CFG_ENABLE_DRV8871
 uint32_t DispenserAddon::motorRunLimit() const {
   if (maxPulseMs_ && maxPulseMs_ < AppConfig::DRV8871_MAX_RUN_MS) return maxPulseMs_;
   return AppConfig::DRV8871_MAX_RUN_MS;
 }
-
-bool DispenserAddon::driveMotor(uint8_t index, uint8_t level) {
-  const auto &pins = AppConfig::DRV8871_MOTORS[index];
-  if (motorMode_ != MotorMode::Drive) {
-    if (motorMode_ == MotorMode::Brake) idleMotor(false);
-    motorIndex_ = index;
-    // Hold IN1 high before handing IN2 to PWM, so either IN2 level is
-    // forward drive or brake. Drive/brake PWM keeps the chip awake.
-    digitalWrite(pins.in1, HIGH);
-    if (!ledcAttach(pins.in2, 20000, 8)) {
-      idleMotor(false);
-      return false;
-    }
-    motorMode_ = MotorMode::Drive;
-  }
-  if (ledcWrite(pins.in2, 255 - level)) return true;
-  idleMotor(false);
-  return false;
-}
-
-void DispenserAddon::idleMotor(bool brake) {
-  const auto &pins = AppConfig::DRV8871_MOTORS[motorIndex_];
-  if (motorMode_ == MotorMode::Drive) {
-    ledcDetach(pins.in2);
-    pinMode(pins.in2, OUTPUT);
-  }
-  digitalWrite(pins.in2, brake ? HIGH : LOW);
-  if (!brake) digitalWrite(pins.in1, LOW);
-  motorMode_ = brake ? MotorMode::Brake : MotorMode::Coast;
-}
-
-bool DispenserAddon::handleMotorCommand(
-  const String &command, CommandSource source, const String &requestId
-) {
-  const bool stop = command.equalsIgnoreCase("MotorStop");
-  if (stop || command.equalsIgnoreCase("MotorCoast")) {
-    const bool brake = stop && armed_ && !faulted_ && interlockOpen();
-    if (motorMode_ == MotorMode::Drive || (motorMode_ == MotorMode::Brake && !brake)) {
-      stopDispense(source, requestId, brake ? "motor braked" : "motor coasting", false, brake);
-    }
-    publish(EventLevel::STATUS, source, requestId,
-      motorMode_ == MotorMode::Brake ? "DRV8871 brake" : "DRV8871 coast");
-    return true;
-  }
-  if (command.equalsIgnoreCase("MotorStatus")) {
-    const char *mode = motorMode_ == MotorMode::Drive ? "drive" :
-      motorMode_ == MotorMode::Brake ? "brake" : "coast";
-    for (size_t i = 0; i < AppConfig::DRV8871_MOTOR_COUNT; ++i) {
-      const bool active = i == motorIndex_;
-      publish(EventLevel::STATUS, source, requestId,
-        "DRV8871 motor=" + String(i + 1) + " " + (active ? mode : "coast") +
-          " level=" + String(motorLevels_[i]) +
-          " remainingMs=" + String(active && motorMode_ == MotorMode::Drive ? remainingDispenseMs(millis()) : 0));
-    }
-    return true;
-  }
-
-  const bool setLevel = TextUtil::startsWithIgnoreCase(command, "MotorLevel:");
-  const bool pulse = TextUtil::startsWithIgnoreCase(command, "MotorPulse:");
-  const bool startWithLevel = TextUtil::startsWithIgnoreCase(command, "MotorStart:");
-  if (!setLevel && !pulse && !startWithLevel && !command.equalsIgnoreCase("MotorStart")) return false;
-
-  uint32_t level = motorLevels_[0];
-  uint32_t durationMs = motorRunLimit();
-  uint32_t motor = 1;
-  if (pulse) {
-    if (!TextUtil::parseMotorPulse(command, durationMs, level, &motor)) {
-      error(source, requestId, "use MotorPulse:ms,level[,motor] with level 1..255");
-      return true;
-    }
-  } else if (setLevel || startWithLevel) {
-    const int comma = command.indexOf(',', 11);
-    const String levelText = comma < 0 ? command.substring(11) : command.substring(11, comma);
-    if (!TextUtil::parseUnsigned32(levelText, level) || level > 255 ||
-        (comma >= 0 && !TextUtil::parseUnsigned32(command.substring(comma + 1), motor))) {
-      error(source, requestId, "expected a level of 0..255 and an optional motor number");
-      return true;
-    }
-  }
-  if (!motor || motor > AppConfig::DRV8871_MOTOR_COUNT) {
-    error(source, requestId, "motor number is outside the configured DRV8871 pin pairs");
-    return true;
-  }
-  const uint8_t index = static_cast<uint8_t>(motor - 1);
-  const bool selectedActive = index == motorIndex_ && motorMode_ != MotorMode::Coast;
-
-  if (setLevel) {
-    if (selectedActive && motorMode_ == MotorMode::Drive && !interlockOpen()) {
-      disarm(source, requestId, "external interlock closed", true, true);
-      return true;
-    }
-    if (level == 0 && selectedActive) {
-      stopDispense(source, requestId, "zero motor level", false);
-    } else if (selectedActive && motorMode_ == MotorMode::Drive &&
-        !driveMotor(index, static_cast<uint8_t>(level))) {
-      stopDispense(source, requestId, "motor PWM error", false);
-      error(source, requestId, "DRV8871 PWM update failed");
-      return true;
-    }
-    motorLevels_[index] = static_cast<uint8_t>(level);
-    publish(EventLevel::STATUS, source, requestId, "DRV8871 motor=" + String(motor) + " level=" + String(level));
-    return true;
-  }
-
-  if (level == 0 || durationMs == 0 || durationMs > motorRunLimit()) {
-    error(source, requestId, "motor run requires level 1..255 and duration 1.." +
-      String(motorRunLimit()) + " ms");
-    return true;
-  }
-  if (!pulse && armTimeoutMs_ && armed_) {
-    const uint32_t remaining = remainingArmMs(millis());
-    if (remaining < durationMs) durationMs = remaining;
-  }
-  startDispense(durationMs, source, requestId, "DRV8871 run", -1, static_cast<uint8_t>(level), index);
-  return true;
-}
-#endif
 
 bool DispenserAddon::startDispense(
   uint32_t durationMs,
@@ -865,13 +779,8 @@ bool DispenserAddon::startDispense(
     error(source, requestId, "dispenser is DISARMED; send Arm first");
     return false;
   }
-#if DRONE_CFG_ENABLE_DRV8871
-  const bool motor = motorLevel != 0;
-#else
-  (void)motorLevel;
-  (void)motorIndex;
+  (void)motorLevel; (void)motorIndex;
   constexpr bool motor = false;
-#endif
   if (!motor) {
     if (pin < 0) pin = outputPin_;
     if (!ownsPin(pin)) {
@@ -879,7 +788,7 @@ bool DispenserAddon::startDispense(
       return false;
     }
   }
-  if (dispensing_) {
+  if (dispensing_ || drv_.busy() || tmc_.busy()) {
     error(
       source,
       requestId,
@@ -916,17 +825,7 @@ bool DispenserAddon::startDispense(
     );
     return false;
   }
-#if DRONE_CFG_ENABLE_DRV8871
-  if (motor) {
-    if (!driveMotor(motorIndex, motorLevel)) {
-      error(source, requestId, "could not start DRV8871 PWM");
-      return false;
-    }
-    motorLevels_[motorIndex] = motorLevel;
-  } else {
-    if (motorMode_ == MotorMode::Brake) idleMotor(false);
-  }
-#endif
+
   if (!motor) {
     activePin_ = pin;
     writeOutput(true);
@@ -954,11 +853,9 @@ void DispenserAddon::stopDispense(
   bool announce,
   bool brakeMotor
 ) {
-#if DRONE_CFG_ENABLE_DRV8871
-  if (motorMode_ != MotorMode::Coast) idleMotor(brakeMotor);
-#else
+  tmc_.stop();
   (void)brakeMotor;
-#endif
+  drv_.stop();
   const bool wasDispensing = dispensing_;
   writeOutput(false);
   activePin_ = -1;
@@ -1002,6 +899,7 @@ void DispenserAddon::disarm(
 }
 
 bool DispenserAddon::arm(CommandSource source, const String &requestId) {
+  if (wiringPending_) { error(source, requestId, "reboot to apply saved driver pins before arming"); return false; }
   if (!initialized_) {
     error(source, requestId, "dispenser is not initialized");
     return false;
@@ -1077,8 +975,8 @@ bool DispenserAddon::validatePin(int pin, String &reason) const {
     reason = "GPIO" + String(pin) + " is owned by the optional auxiliary UART";
     return false;
   }
-  if (AppConfig::isDrv8871Pin(pin)) {
-    reason = "GPIO" + String(pin) + " is owned by the DRV8871";
+  if (wiring_.owns(pin) || (wiringPending_ && pendingWiring_.owns(pin))) {
+    reason = "GPIO" + String(pin) + " is owned by active or pending motor-driver wiring";
     return false;
   }
   reason = "valid output pin";
@@ -1692,10 +1590,14 @@ bool DispenserAddon::eraseSettings() {
 }
 
 uint32_t DispenserAddon::remainingDispenseMs(uint32_t now) const {
-  if (!dispensing_) return 0;
-  const uint32_t duration = dispenseEndsAtMs_ - dispenseStartedAtMs_;
-  const uint32_t elapsed = now - dispenseStartedAtMs_;
-  return elapsed >= duration ? 0 : duration - elapsed;
+  uint32_t remaining = drv_.remainingMs(now);
+  if (tmc_.remainingMs(now) > remaining) remaining = tmc_.remainingMs(now);
+  if (dispensing_) {
+    const uint32_t duration = dispenseEndsAtMs_ - dispenseStartedAtMs_;
+    const uint32_t elapsed = now - dispenseStartedAtMs_;
+    if (elapsed < duration && duration - elapsed > remaining) remaining = duration - elapsed;
+  }
+  return remaining;
 }
 
 uint32_t DispenserAddon::remainingArmMs(uint32_t now) const {

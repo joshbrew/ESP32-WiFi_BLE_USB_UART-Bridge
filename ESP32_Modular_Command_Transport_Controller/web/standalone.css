@@ -1,0 +1,10 @@
+.standaloneToolbar{width:min(1260px,calc(100% - 24px));box-sizing:border-box;margin:12px auto 0;padding:12px 16px;display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,340px);gap:12px;align-items:start}
+.standaloneSummary strong{font-size:.85rem}
+.standaloneHint{color:var(--muted,#91a5b8);font-size:.78rem;line-height:1.4;margin:5px 0}
+.standaloneSummary a{font-size:.78rem;color:var(--accent,#47d7be)}
+.standaloneAddress{min-width:0}
+.standaloneAddress summary{cursor:pointer;font-size:.8rem}
+.standaloneAddress label{display:block;margin:10px 0 5px;font-size:.78rem;color:var(--muted,#91a5b8)}
+.standaloneAddress input{width:100%;box-sizing:border-box;min-width:0;padding:8px}
+.standaloneButtons{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+@media(max-width:760px){.standaloneToolbar{grid-template-columns:minmax(0,1fr)}}

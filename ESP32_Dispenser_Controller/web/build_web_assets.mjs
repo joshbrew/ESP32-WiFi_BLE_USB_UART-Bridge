@@ -121,52 +121,14 @@ constexpr size_t PORTAL_HTML_GZIP_LENGTH = sizeof(PORTAL_HTML_GZIP);
 #endif
 `;
 
-const standaloneCss = `
-.standaloneToolbar {
-  width: min(1180px, calc(100% - 24px));
-  margin: 14px auto 0;
-  display: grid;
-  grid-template-columns: minmax(210px, 1fr) auto minmax(240px, 1fr);
-  align-items: end;
-  gap: 10px;
-}
-.standaloneToolbar label { display: grid; gap: 5px; color: var(--muted); font-size: .8rem; }
-.standaloneToolbar input { width: 100%; padding: 9px 10px; }
-.standaloneHint { color: var(--muted); font-size: .78rem; align-self: center; }
-@media (max-width: 760px) { .standaloneToolbar { grid-template-columns: 1fr; } }
-`;
-
-const standaloneToolbar = `  <section class="standaloneToolbar panel">
-    <label>Controller URL
-      <input id="standaloneDeviceUrl" type="url" value="http://192.168.4.1" spellcheck="false">
-    </label>
-    <button id="standaloneUseDevice" class="primary">Use controller URL</button>
-    <p id="standaloneDeviceStatus" class="standaloneHint">This standalone file is not served by the ESP32.</p>
-  </section>`;
-
-const standaloneSetup = `<script>
-(() => {
-  "use strict";
-  const key = "drone-gel-device-url";
-  const normalize = value => String(value || "").trim().replace(/\\/+$/, "") || "http://192.168.4.1";
-  window.ESP32_API_BASE = normalize(localStorage.getItem(key));
-  const input = document.getElementById("standaloneDeviceUrl");
-  const button = document.getElementById("standaloneUseDevice");
-  const status = document.getElementById("standaloneDeviceStatus");
-  input.value = window.ESP32_API_BASE;
-  status.textContent = "Standalone console targeting " + window.ESP32_API_BASE;
-  button.addEventListener("click", () => {
-    localStorage.setItem(key, normalize(input.value));
-    window.location.reload();
-  });
-})();
-</script>`;
-
-let standaloneHtml = sourcePortalHtml.replace("\n</style>", `${standaloneCss}\n</style>`);
-standaloneHtml = standaloneHtml.replace("<body>", `<body>\n${standaloneToolbar}`);
-standaloneHtml = standaloneHtml.replace(scriptBlock, `${standaloneSetup}\n${scriptBlock}`);
-standaloneHtml =
-  `<!-- GENERATED STANDALONE FILE. Not embedded or served by firmware. -->\n${standaloneHtml}`;
+const standaloneCss = readSource("standalone.css").trimEnd();
+const standaloneToolbar = readSource("standalone_toolbar.html").trimEnd();
+const standaloneSetup = "<script>\n" + readSource("standalone_bootstrap.js").trimEnd().replace(/<\/script/gi, "<\\/script") + "\n</script>";
+let standaloneHtml = indexHtml
+  .replace('<link rel="stylesheet" href="/app.css">', `<style>\n${appCss}\n${standaloneCss}\n</style>`)
+  .replace("<body>", `<body>\n${standaloneToolbar}`)
+  .replace('<script src="/app.js"></script>', `${standaloneSetup}\n<script>\n${appJs.replace(/<\/script/gi, "<\\/script")}\n</script>`);
+standaloneHtml = `<!-- GENERATED STANDALONE FILE. Not embedded or served by firmware. -->\n${standaloneHtml}`;
 
 function isCurrent(filename, expected) {
   return fs.existsSync(filename) &&

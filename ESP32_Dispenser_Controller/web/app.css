@@ -272,3 +272,17 @@ code { color: var(--accent); }
 .heartbeatControls small{width:100%;color:var(--muted,#8da5b8)}
 #heartbeatStatus[data-phase="reply"]{color:var(--good,#73e6b0)}
 #heartbeatStatus[data-phase="missed"]{color:var(--bad,#ff7e8c)}
+
+.driverFields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:8px 0;align-items:end}
+.driverFields label{display:grid;gap:4px;font-size:.76rem;min-width:0}
+.driverFields input,.driverFields select{min-width:0;width:100%;box-sizing:border-box}
+.driverPinEditor{margin:10px 0;font-size:.78rem}
+.driverRestart{padding:8px;border:1px solid var(--accent,#47d7be);border-radius:8px;margin:8px 0}
+.motorControls:disabled{opacity:.8}
+#tmcControls>label{display:block;margin:8px 0;font-size:.78rem}
+#tmcControls>label>select{width:100%}
+.motorControls details summary{cursor:pointer}
+
+.driverJump{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:10px 0 6px}
+.driverJump>span{font-size:.68rem;color:var(--muted,#91a5b8);margin-right:auto}
+.driverJump button{padding:5px 8px;font-size:.72rem}

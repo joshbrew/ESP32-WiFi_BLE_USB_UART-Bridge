@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Controller consoles</title><style>
+:root{color-scheme:dark;font:16px system-ui;background:#080f18;color:#e1edf5}
+body{max-width:760px;margin:8vh auto;padding:20px}h1{font-size:1.8rem;margin-bottom:8px}
+p{color:#9aafc2;line-height:1.55}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:24px 0}
+a{display:block;border:1px solid #304858;border-radius:12px;padding:20px;text-decoration:none;color:#62e9cd;background:#101d2a}
+a:hover,a:focus{border-color:#62e9cd}a span{display:block;font-size:.8rem;color:#9aafc2;margin-top:8px}
+@media(max-width:540px){.grid{grid-template-columns:1fr}}
+</style></head><body><h1>Controller consoles</h1>
+<p>Choose the firmware on your controller. Join its Wi-Fi access point and the console connects automatically.
+Away from Wi-Fi, choose <strong>Connect BLE</strong> inside the console. For DRV8871 or TMC2209 controls, choose a dispenser console; motor support must also be enabled in firmware.</p>
+<div class="grid"><a href="s3-dispenser.html">S3 dispenser + motors<span>Open offline console →</span></a>
+<a href="s3-transport.html">S3 transport (no motor outputs)<span>Open offline console →</span></a>
+<a href="lolin32-dispenser.html">LOLIN32 dispenser + motors<span>Open offline console →</span></a>
+<a href="lolin32-transport.html">LOLIN32 transport (no motor outputs)<span>Open offline console →</span></a></div>
+<p>These files work offline. Allow local network access if asked. Each console HTML file can be copied by itself.
+Use Chrome or Edge with Web Bluetooth support for BLE; the controller must have BLE enabled.</p></body></html>

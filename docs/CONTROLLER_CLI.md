@@ -144,3 +144,15 @@ The CLI's equivalent is `controller compile -Variant s3-dispenser`.
 After that, `controller flash -Variant s3-dispenser` reuses the saved set.
 A CPU value of 80MHz alone is accepted by the flasher. In the reported error,
 the QSPI/OPI choice is the mismatch.
+
+## Motor driver builds
+
+`controller.cmd setup -MotorDrivers` installs TMCStepper 0.7.3 and
+FastAccelStepper 2.0.1 alongside the normal prerequisites, without compiling.
+`controller.cmd compile -Variant s3-dispenser -MotorDrivers` enables both
+DRV8871 and TMC2209 and uses a distinct motor-enabled cache. Use
+`lolin32-dispenser` for the classic board. The switch is rejected for
+transport-only builds. Combine with `-Lte` after S3 cellular setup if needed.
+Source-enabled motor switches are detected for dependency installation too.
+No firmware builds were run during this source/UI update.
+See [motor setup](MOTOR_DRIVERS.md) for runtime pin assignment and priming.

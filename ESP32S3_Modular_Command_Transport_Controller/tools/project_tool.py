@@ -162,68 +162,15 @@ def build_standalone_html() -> None:
     if "<body>" not in html:
         fail("index.html body marker changed; update build_standalone_html()")
 
-    standalone_css = """
-.standaloneToolbar {
-  max-width: 1260px;
-  margin: 16px auto 0;
-  padding: 12px 20px;
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto minmax(240px, 1fr);
-  gap: 10px;
-  align-items: end;
-}
-.standaloneToolbar label { display: grid; gap: 6px; color: var(--muted); font-size: 0.82rem; }
-.standaloneToolbar .standaloneHint { color: var(--muted); line-height: 1.35; font-size: 0.82rem; }
-@media (max-width: 760px) {
-  .standaloneToolbar { grid-template-columns: 1fr; }
-}
-"""
-
-    toolbar = """
-  <section class="standaloneToolbar panel">
-    <label>Device URL
-      <input id="standaloneDeviceUrl" type="url" value="http://192.168.4.1" spellcheck="false">
-    </label>
-    <button id="standaloneUseDevice" class="success">Use device URL</button>
-    <p id="standaloneDeviceStatus" class="standaloneHint">Standalone console. This file is not embedded in or served by the ESP32.</p>
-  </section>
-"""
-
-    bootstrap = r'''
-<script>
-(() => {
-  "use strict";
-  const storageKey = "esp32-controller-device-url";
-  const normalize = (value) => {
-    const trimmed = String(value || "").trim().replace(/\/+$/, "");
-    return trimmed || "http://192.168.4.1";
-  };
-
-  window.ESP32_API_BASE = normalize(localStorage.getItem(storageKey));
-  const input = document.getElementById("standaloneDeviceUrl");
-  const button = document.getElementById("standaloneUseDevice");
-  const status = document.getElementById("standaloneDeviceStatus");
-  input.value = window.ESP32_API_BASE;
-  status.textContent = `Standalone console targeting ${window.ESP32_API_BASE}`;
-
-  button.addEventListener("click", () => {
-    const next = normalize(input.value);
-    localStorage.setItem(storageKey, next);
-    window.location.reload();
-  });
-})();
-</script>
-'''
-
-    css = (css + "\n" + standalone_css).replace("</style", "<\\/style")
-    javascript = javascript.replace("</script", "<\\/script")
+    standalone_css = (WEB / "standalone.css").read_text(encoding="utf-8").replace("\r\n", "\n").rstrip()
+    toolbar = (WEB / "standalone_toolbar.html").read_text(encoding="utf-8").replace("\r\n", "\n").rstrip()
+    bootstrap_js = (WEB / "standalone_bootstrap.js").read_text(encoding="utf-8").replace("\r\n", "\n").rstrip()
+    bootstrap = "<script>\n" + bootstrap_js.replace("</script", "<\\/script") + "\n</script>"
+    css = (css.rstrip() + "\n" + standalone_css).replace("</style", "<\\/style")
+    javascript = javascript.rstrip().replace("</script", "<\\/script")
     output = html.replace(stylesheet_marker, f"<style>\n{css}\n</style>")
-    output = output.replace("<body>", "<body>" + toolbar, 1)
+    output = output.replace("<body>", "<body>\n" + toolbar, 1)
     output = output.replace(script_marker, bootstrap + f"\n<script>\n{javascript}\n</script>")
-    output = output.replace(
-        "<title>ESP32 Controller Console</title>",
-        "<title>ESP32 Modular Controller Standalone Console</title>",
-    )
     output = "<!-- GENERATED STANDALONE FILE. Not embedded or served by firmware. -->\n" + output
     STANDALONE.write_text(output, encoding="utf-8")
     print(f"Wrote {STANDALONE.relative_to(ROOT)}")

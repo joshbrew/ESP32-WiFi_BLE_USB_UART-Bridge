@@ -80,10 +80,20 @@ try{
     $ltePlan=Get-ControllerCompilePlan s3-dispenser $environment usb $true 2 $false $lteRepository
     Assert ($ltePlan.Cellular -and $ltePlan.Arguments -contains 'compiler.cpp.extra_flags=-DAPP_ENABLE_LTE=1') 'LTE must be enabled in the compile invocation without editing QuickConfig'
 
+    $motors=Get-ControllerCompilePlan s3-dispenser $environment usb $false 2 $false $repository -Motors $true
+    Assert ($motors.MotorDrivers -and $motors.Cache -match 'motors$') 'Motor builds need their own cache profile'
+    Assert ($motors.Arguments -contains 'compiler.cpp.extra_flags=-DDRONE_CFG_ENABLE_DRV8871=1 -DDRONE_CFG_ENABLE_TMC2209=1') 'Motor switches must be enabled together without editing source'
+    Fails {Get-ControllerCompilePlan s3-transport $environment usb $false 2 $false $repository -Motors $true} 'dispenser'
+    $both=Get-ControllerCompilePlan s3-dispenser $environment usb $true 2 $false $lteRepository -Motors $true
+    Assert ($both.Arguments -contains 'compiler.cpp.extra_flags=-DAPP_ENABLE_LTE=1 -DDRONE_CFG_ENABLE_DRV8871=1 -DDRONE_CFG_ENABLE_TMC2209=1') 'LTE and motor flags must not replace each other'
+    $motorLibraries=Get-ControllerLibraries $false $true
+    Assert (@($motorLibraries|Where-Object {$_.Name -eq 'TMCStepper' -and $_.Version -eq '0.7.3'}).Count -eq 1) 'TMCStepper dependency missing'
+    Assert (@($motorLibraries|Where-Object {$_.Name -eq 'FastAccelStepper' -and $_.Version -eq '2.0.1'}).Count -eq 1) 'FastAccelStepper dependency missing'
+
     # Dry run must not call setup, compile, downloads, prompts or serial discovery.
     $hostExe=[Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
     $absentTools=Join-Path $testRoot 'never-created'
-    $output=& $hostExe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repository 'tools\controller.ps1') compile -Variant s3-dispenser -ToolsDirectory $absentTools -DryRun 2>&1
+    $output=& $hostExe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repository 'tools\controller.ps1') compile -Variant s3-dispenser -MotorDrivers -ToolsDirectory $absentTools -DryRun 2>&1
     Assert ($LASTEXITCODE -eq 0 -and ($output -join "`n") -match 'no installation, compilation or serial access') 'Compile dry run failed'
     Assert (-not(Test-Path -LiteralPath $absentTools)) 'Compile dry run must not create a tools directory'
     Write-Output 'PASS USB/Feather discovery, Bluetooth exclusion, port selection/confirmation, idempotent setup, pinned dependencies, four compile profiles and side-effect-free dry run.'

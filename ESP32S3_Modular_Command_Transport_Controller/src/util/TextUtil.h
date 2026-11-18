@@ -7,6 +7,8 @@
 // new credential-bearing command prefix must be added to redactedCommand().
 namespace TextUtil {
 
+bool isMotorStop(const String &input);
+
 bool startsWithIgnoreCase(const String &value, const char *prefix);
 bool parseOnOff(String value, bool &result);
 bool parseLong(String value, long &result);

@@ -54,6 +54,8 @@ constexpr uint32_t COMMAND_TTL_MS = 5000;
 constexpr uint32_t ACTIVE_STATE_MS = 1000;
 constexpr uint32_t IDLE_STATE_MS = 15000;
 constexpr uint32_t TASK_STACK_BYTES = 12288;
+static_assert(!APP_LTE_ENABLED || !DRONE_CFG_ENABLE_TMC2209 ||
+  AppConfig::TMC2209_UART_PORT != UART_PORT, "LTE and TMC2209 must use different hardware UARTs.");
 constexpr const char *APN = LTE_APN;
 constexpr const char *APN_USER = LTE_APN_USER;
 constexpr const char *APN_PASSWORD = LTE_APN_PASSWORD;

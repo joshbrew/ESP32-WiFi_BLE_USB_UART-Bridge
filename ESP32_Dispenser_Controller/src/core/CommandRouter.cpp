@@ -105,12 +105,9 @@ void CommandRouter::submit(
   );
 
   const bool emergencyStop = command.equalsIgnoreCase("StopAll");
-  const bool safetyCommand = emergencyStop || command.equalsIgnoreCase("RoutineStop") ||
-    command.equalsIgnoreCase("GeoStop") || command.equalsIgnoreCase("DispenseStop") || command.equalsIgnoreCase("Disarm")
-#if DRONE_CFG_ENABLE_DRV8871
-    || command.equalsIgnoreCase("MotorStop") || command.equalsIgnoreCase("MotorCoast")
-#endif
-    ;
+  const bool safetyCommand = emergencyStop || TextUtil::isMotorStop(command) ||
+    command.equalsIgnoreCase("RoutineStop") || command.equalsIgnoreCase("GeoStop") ||
+    command.equalsIgnoreCase("DispenseStop") || command.equalsIgnoreCase("Disarm");
   if (rebootPending_ && !safetyCommand) {
     error(source, requestId, "controller reboot is pending; command ignored");
     return;
@@ -318,12 +315,7 @@ void CommandRouter::submit(
     return;
   }
 
-#if DRONE_CFG_ENABLE_DRV8871
-  const bool stopMotorRoutine = (routines_.isActive() || geo_.isActive()) &&
-    (command.equalsIgnoreCase("MotorStop") || command.equalsIgnoreCase("MotorCoast"));
-#else
-  constexpr bool stopMotorRoutine = false;
-#endif
+  const bool stopMotorRoutine = (routines_.isActive() || geo_.isActive()) && TextUtil::isMotorStop(command);
   if (stopMotorRoutine || command.equalsIgnoreCase("GeoStop") || command.equalsIgnoreCase("RoutineStop") ||
       command.equalsIgnoreCase("DispenseStop") || command.equalsIgnoreCase("Disarm")) {
     geo_.stop("operator stop");

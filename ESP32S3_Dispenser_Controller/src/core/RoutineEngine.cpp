@@ -496,6 +496,7 @@ String RoutineEngine::stateJson(bool compact) const {
     uint32_t delayMs = 0, pulseMs = 0, gapMs = 0;
     uint8_t pulseCount = 0, waitCount = 0, outputs = 0, motorSteps = 0;
     uint32_t motorPulse = 0, motorGap = 0, motorLevel = 0, motorNumber = 1;
+    uint32_t tmcSteps = 0, tmcPulse = 0, tmcGap = 0, tmcRpm = 0, tmcNumber = 1; long tmcDirection = 1;
     bool simple = true;
     for (uint8_t i = 0; i < routine.count; ++i) {
       const StoredStep &step = routine.steps[i];
@@ -508,6 +509,8 @@ String RoutineEngine::stateJson(bool compact) const {
         if (TextUtil::parseMotorPulse(command, motorPulse, motorLevel, &motorNumber)) {
           ++motorSteps;
           motorGap = step.value;
+        } else if (TextUtil::parseTmcPulse(command, tmcPulse, tmcRpm, tmcDirection, &tmcNumber)) {
+          ++tmcSteps; tmcGap = step.value;
         }
       }
       if (static_cast<StepType>(step.type) == StepType::COMMAND) {
@@ -523,6 +526,9 @@ String RoutineEngine::stateJson(bool compact) const {
     } else {
       motorLevel = 0;
     }
+    if (tmcSteps == 1 && outputs == 1 && pulseCount == 0 && waitCount == 0) {
+      pulseMs = tmcPulse; gapMs = tmcGap;
+    }
     if (!first) json += ',';
     first = false;
     // Names were validated on create/load; quotes and escapes are disallowed.
@@ -536,6 +542,12 @@ String RoutineEngine::stateJson(bool compact) const {
         static_cast<unsigned>(motorSteps), static_cast<unsigned long>(motorLevel));
       json += entry;
       if (motorLevel && motorNumber != 1) json += "," + String(motorNumber);
+    }
+    if (tmcSteps) {
+      // Preserve earlier positional metadata; fill absent DRV fields first.
+      if (!motorSteps) json += ",0,0,1";
+      else if (!motorLevel || motorNumber == 1) json += ",1";
+      json += "," + String(tmcSteps) + "," + String(tmcRpm) + "," + String(tmcDirection) + "," + String(tmcNumber);
     }
     json += ']';
   }
@@ -575,7 +587,7 @@ void RoutineEngine::publishHelp(CommandSource source, const String &requestId) c
     EventLevel::STATUS,
     source,
     requestId,
-    "Routines: RoutineCreate:name RoutineAdd:name:START_WAIT:ms RoutineAdd:name:DISPENSE:ms RoutineAdd:name:OUTPUT:pin,pulse,gap RoutineAdd:name:MOTOR:on,off,level RoutineAdd:name:WAIT:ms RoutineAdd:name:WAIT_IDLE"
+    "Routines: RoutineCreate:name RoutineAdd:name:START_WAIT:ms RoutineAdd:name:DISPENSE:ms RoutineAdd:name:OUTPUT:pin,pulse,gap RoutineAdd:name:MOTOR:on,off,level RoutineAdd:name:TMC:on,off,RPM,+1|-1[,motor] RoutineAdd:name:WAIT:ms RoutineAdd:name:WAIT_IDLE"
   );
   publish(
     EventLevel::STATUS,
@@ -650,7 +662,9 @@ bool RoutineEngine::validStoredRoutine(const StoredRoutine &routine) const {
         uint32_t pulse = 0, level = 0;
         int pin = -1;
         const bool gpioPulse = TextUtil::parseDispense(command, pin, pulse) && pin >= 0;
-        if (!gpioPulse && !TextUtil::parseMotorPulse(command, pulse, level)) return false;
+        long direction = 0;
+        if (!gpioPulse && !TextUtil::parseMotorPulse(command, pulse, level) &&
+            !TextUtil::parseTmcPulse(command, pulse, level, direction)) return false;
       } else {
         String reason;
         if (!safeRoutineCommand(command, reason)) return false;
@@ -679,6 +693,12 @@ bool RoutineEngine::safeRoutineCommand(const String &command, String &reason) co
       return false;
     }
     reason = "validated bounded dispense command";
+    return true;
+  }
+
+  if (TextUtil::startsWithIgnoreCase(work, "TMCPulse:")) {
+    uint32_t pulse = 0, rpm = 0; long direction = 0;
+    if (!TextUtil::parseTmcPulse(work, pulse, rpm, direction)) { reason = "invalid bounded TMC pulse"; return false; }
     return true;
   }
 
@@ -764,7 +784,7 @@ bool RoutineEngine::addStep(StoredRoutine &routine, const String &specValue, Str
       "MotorPulse:" + spec.substring(6, first) + "," + spec.substring(second + 1);
     if (second < 0 || !TextUtil::parseUnsigned32(spec.substring(first + 1, second), step.value) ||
         !TextUtil::parseMotorPulse(command, pulse, level, &motor) ||
-        motor > AppConfig::DRV8871_MOTOR_COUNT) {
+        motor > 4) {
       reason = "MOTOR needs onMs,offMs,level[,motor] using a configured motor number";
       return false;
     }
@@ -775,6 +795,21 @@ bool RoutineEngine::addStep(StoredRoutine &routine, const String &specValue, Str
 #else
     reason = "enable DRV8871 to add a motor step";
     return false;
+#endif
+  } else if (TextUtil::startsWithIgnoreCase(spec, "TMC:")) {
+#if DRONE_CFG_ENABLE_TMC2209
+    const int first = spec.indexOf(',', 4), second = first < 0 ? -1 : spec.indexOf(',', first + 1);
+    const String command = second < 0 ? String() : "TMCPulse:" + spec.substring(4, first) + "," + spec.substring(second + 1);
+    uint32_t pulse = 0, rpm = 0, motor = 0; long direction = 0;
+    if (second < 0 || !TextUtil::parseUnsigned32(spec.substring(first + 1, second), step.value) ||
+        !TextUtil::parseTmcPulse(command, pulse, rpm, direction, &motor) || motor > 4 ||
+        rpm > AppConfig::TMC2209_MAX_RPM || pulse > AppConfig::TMC2209_MAX_RUN_MS || !step.value) {
+      reason = "TMC needs onMs,offMs,RPM,direction(+1/-1)[,motor] with a positive off period"; return false;
+    }
+    step.type = static_cast<uint8_t>(StepType::TIMED_OUTPUT);
+    command.toCharArray(step.command, sizeof(step.command));
+#else
+    reason = "enable TMC2209 to add a stepper pulse"; return false;
 #endif
   } else if (startWait || TextUtil::startsWithIgnoreCase(spec, "WAIT:")) {
     uint32_t waitMs = 0;
@@ -941,6 +976,14 @@ bool RoutineEngine::startRoutine(
         }
         ++motorSteps;
         motorWithNoGap |= step.value == 0;
+        cycleMs += pulse;
+      } else if (TextUtil::startsWithIgnoreCase(command, "TMCPulse:")) {
+        uint32_t rpm = 0; long direction = 0;
+        if (!TextUtil::parseTmcPulse(command, pulse, rpm, direction)) return false;
+        ++motorSteps;
+        // A raw COMMAND pulse is permitted only once. Repeats use the TMC
+        // timed-output step so its positive off period is explicit and saved.
+        motorWithNoGap |= type != StepType::TIMED_OUTPUT || step.value == 0;
         cycleMs += pulse;
       } else if (TextUtil::parseDispense(command, pin, pulse)) {
         cycleMs += pulse;

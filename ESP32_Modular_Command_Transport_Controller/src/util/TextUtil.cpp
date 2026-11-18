@@ -107,6 +107,20 @@ bool parseFloat(String value, float &result) {
   return true;
 }
 
+bool isMotorStop(const String &input) {
+  String line = input; line.trim();
+  const char *const names[] = {"MotorStop", "MotorCoast", "TMCStop", "TMCDisable"};
+  for (const char *name : names) {
+    if (line.equalsIgnoreCase(name)) return true;
+    const String prefix = String(name) + ":";
+    if (startsWithIgnoreCase(line, prefix.c_str())) {
+      const String number = line.substring(prefix.length());
+      return number.length() == 1 && number[0] >= '1' && number[0] <= '4';
+    }
+  }
+  return false;
+}
+
 String boolWord(bool value) {
   return value ? "on" : "off";
 }

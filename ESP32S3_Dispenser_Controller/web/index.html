@@ -45,9 +45,9 @@
         <input id="pulseDuration" type="number" min="1" value="250" inputmode="numeric">
         <button id="dispensePulse" class="primary">Dispense</button>
       </div>
-      <fieldset id="motorControls" class="motorControls" hidden>
+      <fieldset id="motorControls" class="motorControls" disabled>
         <legend>DRV8871 motor</legend>
-        <p id="motorState" class="hint" role="status"></p>
+        <p id="motorState" class="hint" role="status">Connect to check DRV8871 support. This panel stays visible when driver support is disabled.</p>
         <label id="motorChannelField" hidden>Motor
           <select id="motorChannel"><option value="1">Motor 1</option></select>
         </label>
@@ -85,6 +85,7 @@
           <option value="gpio">GPIO outputs</option>
           <option value="motorPulse">DRV8871 repeated pulses</option>
           <option value="motorSteady">DRV8871 steady run</option>
+          <option value="tmcPulse">TMC2209 stepper pulses</option>
         </select>
       </label>
       <fieldset id="motorRoutineSettings" class="motorControls" hidden>

@@ -59,6 +59,45 @@
   #endif
 #endif
 
+
+// Optional TMC2209 STEP/DIR + UART driver. NEMA14 1.8 deg, 0.5 A phase motor.
+#ifndef DRONE_CFG_ENABLE_TMC2209
+#define DRONE_CFG_ENABLE_TMC2209 0
+#endif
+#ifndef DRONE_CFG_TMC2209_UART_PORT
+#define DRONE_CFG_TMC2209_UART_PORT 1
+#endif
+#ifndef DRONE_CFG_TMC2209_TX_PIN
+#define DRONE_CFG_TMC2209_TX_PIN 11
+#endif
+#ifndef DRONE_CFG_TMC2209_RX_PIN
+#define DRONE_CFG_TMC2209_RX_PIN 12
+#endif
+#ifndef DRONE_CFG_TMC2209_MOTOR_PINS
+#define DRONE_CFG_TMC2209_MOTOR_PINS { {8, 9, 10, 0} }
+#endif
+#ifndef DRONE_CFG_TMC2209_CURRENT_MA
+#define DRONE_CFG_TMC2209_CURRENT_MA 300
+#endif
+#ifndef DRONE_CFG_TMC2209_MAX_CURRENT_MA
+#define DRONE_CFG_TMC2209_MAX_CURRENT_MA 350
+#endif
+#ifndef DRONE_CFG_TMC2209_MICROSTEPS
+#define DRONE_CFG_TMC2209_MICROSTEPS 16
+#endif
+#ifndef DRONE_CFG_TMC2209_STEPS_PER_REV
+#define DRONE_CFG_TMC2209_STEPS_PER_REV 200
+#endif
+#ifndef DRONE_CFG_TMC2209_MAX_RPM
+#define DRONE_CFG_TMC2209_MAX_RPM 120
+#endif
+#ifndef DRONE_CFG_TMC2209_MAX_RUN_MS
+#define DRONE_CFG_TMC2209_MAX_RUN_MS 30000UL
+#endif
+#ifndef DRONE_CFG_TMC2209_RSENSE
+#define DRONE_CFG_TMC2209_RSENSE 0.11f
+#endif
+
 #ifndef DRONE_CFG_ENABLE_DRV8871
 #define DRONE_CFG_ENABLE_DRV8871 0
 #endif
@@ -279,6 +318,20 @@ struct Drv8871Pins { int in1; int in2; };
 constexpr Drv8871Pins DRV8871_MOTORS[] = DRONE_CFG_DRV8871_MOTOR_PINS;
 constexpr size_t DRV8871_MOTOR_COUNT = sizeof(DRV8871_MOTORS) / sizeof(DRV8871_MOTORS[0]);
 constexpr uint32_t DRV8871_MAX_RUN_MS = DRONE_CFG_DRV8871_MAX_RUN_MS;
+struct Tmc2209Pins { int step; int dir; int enable; uint8_t address; };
+constexpr Tmc2209Pins TMC2209_MOTORS[] = DRONE_CFG_TMC2209_MOTOR_PINS;
+constexpr size_t TMC2209_MOTOR_COUNT = sizeof(TMC2209_MOTORS) / sizeof(TMC2209_MOTORS[0]);
+constexpr int TMC2209_UART_PORT = DRONE_CFG_TMC2209_UART_PORT;
+constexpr int TMC2209_TX_PIN = DRONE_CFG_TMC2209_TX_PIN;
+constexpr int TMC2209_RX_PIN = DRONE_CFG_TMC2209_RX_PIN;
+constexpr uint16_t TMC2209_CURRENT_MA = DRONE_CFG_TMC2209_CURRENT_MA;
+constexpr uint16_t TMC2209_MAX_CURRENT_MA = DRONE_CFG_TMC2209_MAX_CURRENT_MA;
+constexpr uint16_t TMC2209_MICROSTEPS = DRONE_CFG_TMC2209_MICROSTEPS;
+constexpr uint16_t TMC2209_STEPS_PER_REV = DRONE_CFG_TMC2209_STEPS_PER_REV;
+constexpr uint16_t TMC2209_MAX_RPM = DRONE_CFG_TMC2209_MAX_RPM;
+constexpr uint32_t TMC2209_MAX_RUN_MS = DRONE_CFG_TMC2209_MAX_RUN_MS;
+constexpr float TMC2209_RSENSE = DRONE_CFG_TMC2209_RSENSE;
+
 constexpr int PIN_DISPENSER = DRONE_CFG_DISPENSER_PIN;
 constexpr bool DISPENSER_ACTIVE_HIGH = DRONE_CFG_DISPENSER_ACTIVE_HIGH != 0;
 constexpr uint32_t DISPENSER_DEFAULT_PULSE_MS = DRONE_CFG_DISPENSER_DEFAULT_PULSE_MS;
@@ -393,7 +446,7 @@ constexpr size_t EVENT_TEXT_BYTES = 192;
 constexpr uint8_t WEB_EVENT_DEFAULT_LIMIT = 4;
 constexpr uint8_t WEB_EVENT_MAX_LIMIT = 6;
 constexpr uint32_t WEB_STATE_CACHE_INTERVAL_MS = 800;
-constexpr size_t WEB_STATE_JSON_BUDGET_BYTES = 2560;
+constexpr size_t WEB_STATE_JSON_BUDGET_BYTES = (DRONE_CFG_ENABLE_TMC2209 || DRONE_CFG_ENABLE_DRV8871) ? 4096 : 2560;
 constexpr size_t WEB_EVENT_JSON_BUDGET_BYTES = 768;
 // Embedded portal responses are paced from PROGMEM so Wi-Fi/BLE coexistence
 // never retains an entire TCP window of page data.
@@ -506,6 +559,14 @@ constexpr bool isDrv8871Pin(int pin) {
   return false;
 }
 
+constexpr bool isTmc2209Pin(int pin) {
+  if (!DRONE_CFG_ENABLE_TMC2209) return false;
+  if (pin == TMC2209_TX_PIN || pin == TMC2209_RX_PIN) return true;
+  for (const auto &motor : TMC2209_MOTORS)
+    if (pin == motor.step || pin == motor.dir || pin == motor.enable) return true;
+  return false;
+}
+
 constexpr bool isAvailableDrv8871Pin(int pin) {
   return isConservativePayloadOutputPin(pin) && !isStatusIndicatorPin(pin) &&
     pin != PIN_DISPENSER && pin != PIN_DISPENSER_INTERLOCK &&
@@ -517,7 +578,8 @@ static_assert(!DRONE_CFG_ENABLE_DRV8871 || ENABLE_DRONE_DISPENSER_ADDON,
 constexpr bool validDrv8871Pins() {
   for (size_t i = 0; i < DRV8871_MOTOR_COUNT; ++i) {
     const auto &motor = DRV8871_MOTORS[i];
-    if (!isAvailableDrv8871Pin(motor.in1) || !isAvailableDrv8871Pin(motor.in2) || motor.in1 == motor.in2) {
+    if (!isAvailableDrv8871Pin(motor.in1) || !isAvailableDrv8871Pin(motor.in2) ||
+        isTmc2209Pin(motor.in1) || isTmc2209Pin(motor.in2) || motor.in1 == motor.in2) {
       return false;
     }
     for (size_t j = 0; j < i; ++j) {
@@ -528,6 +590,39 @@ constexpr bool validDrv8871Pins() {
   }
   return true;
 }
+
+constexpr bool validTmc2209Pins() {
+  if (!isAvailableDrv8871Pin(TMC2209_TX_PIN) || !isAvailableDrv8871Pin(TMC2209_RX_PIN) ||
+      isDrv8871Pin(TMC2209_TX_PIN) || isDrv8871Pin(TMC2209_RX_PIN) || TMC2209_TX_PIN == TMC2209_RX_PIN) return false;
+  for (size_t i = 0; i < TMC2209_MOTOR_COUNT; ++i) {
+    const auto &motor = TMC2209_MOTORS[i];
+    const int pins[] = {motor.step, motor.dir, motor.enable};
+    if (motor.address > 3) return false;
+    for (size_t a = 0; a < 3; ++a) {
+      if (!isAvailableDrv8871Pin(pins[a]) || isDrv8871Pin(pins[a]) ||
+          pins[a] == TMC2209_TX_PIN || pins[a] == TMC2209_RX_PIN) return false;
+      for (size_t b = 0; b < a; ++b) if (pins[a] == pins[b]) return false;
+      for (size_t j = 0; j < i; ++j) {
+        const auto &prior = TMC2209_MOTORS[j];
+        if (pins[a] == prior.step || pins[a] == prior.dir || pins[a] == prior.enable ||
+            motor.address == prior.address) return false;
+      }
+    }
+  }
+  return true;
+}
+static_assert(!DRONE_CFG_ENABLE_TMC2209 || ENABLE_DRONE_DISPENSER_ADDON, "TMC2209 requires the dispenser profile.");
+static_assert(TMC2209_MOTOR_COUNT >= 1 && TMC2209_MOTOR_COUNT <= 4, "Configure 1..4 TMC2209 drivers.");
+static_assert(!DRONE_CFG_ENABLE_TMC2209 || validTmc2209Pins(), "TMC2209 pins/addresses must be unique and free of other outputs, interlock, LEDs and UARTs.");
+static_assert(!DRONE_CFG_ENABLE_TMC2209 || (TMC2209_UART_PORT >= 1 && TMC2209_UART_PORT <= 2 &&
+  (!ENABLE_AUX_UART || TMC2209_UART_PORT != AUX_UART_PORT)), "TMC2209 needs a free hardware UART1 or UART2.");
+static_assert(!DRONE_CFG_ENABLE_TMC2209 || (TMC2209_CURRENT_MA >= 50 && TMC2209_CURRENT_MA <= TMC2209_MAX_CURRENT_MA &&
+  TMC2209_MAX_CURRENT_MA <= 350), "The 0.5 A NEMA14 profile permits 50..350 mA RMS (about 0.5 A peak).");
+static_assert(!DRONE_CFG_ENABLE_TMC2209 || (TMC2209_MICROSTEPS >= 1 && TMC2209_MICROSTEPS <= 256 &&
+  (TMC2209_MICROSTEPS & (TMC2209_MICROSTEPS - 1)) == 0), "TMC2209 microsteps must be a power of two from 1..256.");
+static_assert(!DRONE_CFG_ENABLE_TMC2209 || (TMC2209_STEPS_PER_REV == 200 && TMC2209_RSENSE > 0.0f &&
+  TMC2209_MAX_RPM >= 1 && TMC2209_MAX_RPM <= 120 && TMC2209_MAX_RUN_MS >= 100 && TMC2209_MAX_RUN_MS <= 30000UL),
+  "NEMA14 defaults require 200 steps/rev, positive sense resistance, 1..120 RPM and 100..30000 ms run cap.");
 
 static_assert(DRV8871_MOTOR_COUNT >= 1 && DRV8871_MOTOR_COUNT <= 4, "Configure 1 to 4 DRV8871 pin pairs.");
 static_assert(!DRONE_CFG_ENABLE_DRV8871 || validDrv8871Pins(),
@@ -720,7 +815,7 @@ constexpr BaseType_t NETWORK_TASK_CORE = 0;
 constexpr TickType_t NETWORK_TASK_DELAY_TICKS = 1;
 
 constexpr bool isAvailableAddonPin(int pin) {
-  return isConservativePayloadOutputPin(pin) && !isStatusIndicatorPin(pin) && !isDrv8871Pin(pin) &&
+  return isConservativePayloadOutputPin(pin) && !isStatusIndicatorPin(pin) && !isDrv8871Pin(pin) && !isTmc2209Pin(pin) &&
     (!ENABLE_DRONE_DISPENSER_ADDON || (pin != PIN_DISPENSER && pin != PIN_DISPENSER_INTERLOCK)) &&
     (!ENABLE_STEPPER_DAC_ADDON || (pin != PIN_STEPPER_IN1 && pin != PIN_STEPPER_IN2 &&
       pin != PIN_STEPPER_IN3 && pin != PIN_STEPPER_IN4 && pin != PIN_DIGITAL_OUTPUT));

@@ -392,18 +392,18 @@ Set `DRONE_CFG_ENABLE_DRV8871` to `1` in `QuickConfig.h`. Default wiring is
 negative. Connect the motor across OUT1/OUT2 and a separate motor-rated supply
 to VM/GND within the breakout's 6.5–45 V range. The level is 8-bit PWM duty
 cycle. The breakout's ILIM resistor sets the hardware current limit.
-Configure one to four IN1/IN2 pairs in `DRONE_CFG_DRV8871_MOTOR_PINS`. Each
+Assign up to four IN1/IN2 pairs in the UI after enabling support; `DRONE_CFG_DRV8871_MOTOR_PINS` supplies boot defaults. Each
 motor uses its own breakout and two GPIOs. Pin pairs are numbered in list order
 starting at 1. Keep that order when rebuilding to preserve saved motor targets.
 The console shows motor selectors when more than one pair is configured.
 [Adafruit wiring guide](https://learn.adafruit.com/adafruit-drv8871-brushed-dc-motor-driver-breakout/pinouts)
 
 Arm the dispenser, select a drive level, and press **Start** or **Pulse** in
-the DRV8871 panel next to the GPIO pulse controls. While driving, releasing the
+the DRV8871 panel next to the GPIO pulse controls. The panel remains visible with an enable/setup message when firmware support is absent. While driving, releasing the
 slider applies the new level without extending the run. **Stop (brake)** brakes
 a running motor. **Coast**, timer expiry, Disarm, interlock closure and Stop All
-release the motor. GPIO and motor pulses share the dispenser's single active
-output slot. The motor cap defaults to 30 seconds and is configurable via
+release the motor. GPIO dispensing stays exclusive; manual motor channels can
+run together for priming, while saved routines remain sequential. The motor cap defaults to 30 seconds and is configurable via
 `DRONE_CFG_DRV8871_MAX_RUN_MS`. A shorter payload pulse limit or remaining
 arm window still applies. In the routine builder, choose **DRV8871 repeated
 pulses** for an on/off cycle or **DRV8871 steady run** for a single bounded run.
@@ -430,3 +430,40 @@ received browser commands rather than a free-running device timer.
 
 Manual commands `Heartbeat` and `Heartbeat:range1` also produce a pulse and
 reply. No arming is required, and heartbeat does not activate the payload.
+
+## Open the standalone console
+
+Open `web/standalone_console.html` in Chrome or Edge. Join the controller's
+Wi-Fi access point; the file automatically targets `http://192.168.4.1`
+and retries if you join Wi-Fi after opening it. It needs no internet or local server.
+Allow local network access if the browser asks. If file access is blocked by
+browser policy, use **Open controller page** to reach the hosted interface.
+
+Alternatively click **Connect BLE** and choose the controller. Wi-Fi is not
+required for BLE, and browser permission requires this click. BLE must be
+enabled in firmware and supported by the browser. Heartbeat and commands use
+the selected transport. Disconnect BLE to resume automatic Wi-Fi polling.
+
+For a controller on another address, expand **Connection address**, enter its
+address and choose **Use address**. **Auto Wi-Fi** returns to the access point.
+Old saved addresses do not override the automatic access-point target.
+The standalone HTML includes all its assets and can be copied by itself.
+The repository's `Standalone_Consoles` folder contains named copies for all four
+variants; refresh these with `python tools/build_standalone_consoles.py` after UI changes.
+
+## Motor driver controls and runtime pin assignment
+
+The DRV8871 and TMC2209 panels are visible in the dispenser console, including
+the standalone HTML. Disabled controls explain missing firmware support.
+Use `controller.cmd compile -Variant s3-dispenser -MotorDrivers` (or
+`lolin32-dispenser`) when ready to build both drivers with automatic library
+installation. No compile was performed during this source iteration.
+
+Assign driver pins in **Assign pins / add motor**, while disarmed; save and
+restart to apply. Each type supports up to four numbered channels subject to
+free GPIOs. TMC2209 drivers share a configurable UART bus and use unique
+addresses. Settings persist on the controller without editing firmware.
+Saved routines sequence motors; manual pulses can run concurrently for priming.
+Individual stops address the selected motor; Stop all/Disarm stop everything.
+See [the motor driver and wiring guide](docs/MOTOR_DRIVERS.md) for BTT V1.3
+single-wire UART, the 0.5 A NEMA14 current limit, commands, limits and defaults.

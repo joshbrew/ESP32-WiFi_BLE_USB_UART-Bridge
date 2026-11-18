@@ -1,0 +1,17 @@
+<section class="standaloneToolbar panel" aria-label="Standalone connection">
+  <div class="standaloneSummary">
+    <strong>Offline console</strong>
+    <p id="standaloneDeviceStatus" class="standaloneHint" role="status">Connecting to the controller Wi-Fi. Or choose Connect BLE.</p>
+    <p class="standaloneHint">Allow local network access if your browser asks. BLE requires a click on Connect BLE.</p>
+    <a id="standaloneOpenDevice" href="http://192.168.4.1" target="_blank" rel="noopener">Open controller page ↗</a>
+  </div>
+  <details class="standaloneAddress">
+    <summary>Connection address</summary>
+    <label for="standaloneDeviceUrl">Custom controller address</label>
+    <input id="standaloneDeviceUrl" type="text" inputmode="url" value="http://192.168.4.1" spellcheck="false" autocomplete="off">
+    <div class="standaloneButtons">
+      <button id="standaloneUseDevice" type="button">Use address</button>
+      <button id="standaloneAutoDevice" type="button">Auto Wi-Fi</button>
+    </div>
+  </details>
+</section>

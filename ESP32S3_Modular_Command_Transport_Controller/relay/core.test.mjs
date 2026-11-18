@@ -175,3 +175,16 @@ test('presence alone cannot admit commands, while Stop remains available',async(
   const next='c'.repeat(32);relay.ingest('devices/test/presence',JSON.stringify({online:true,protocol:2,barrier:0,session:next,uptime:0}));
   await assert.rejects(relay.command('reconnected','Arm'),/Waiting for current device state/);
 });
+
+test('individual motor stops preserve separate queued targets; global stops retain priority', async () => {
+  const {isPriorityStop} = await import('./core.mjs');
+  for (const body of ['StopAll','Disarm','DispenseStop','RoutineStop']) assert.equal(isPriorityStop(body),true,body);
+  for (const body of ['MotorStop','MotorStop:1','MotorCoast:4','TMCStop','TMCStop:2','TMCDisable:3']) assert.equal(isPriorityStop(body),false,body);
+  const {relay,sent}=fixture();
+  const first=relay.command('dc-stop','MotorStop:1');
+  const second=relay.command('tmc-stop','TMCStop:2');
+  assert.deepEqual(sent.map(item=>item.data.body),['MotorStop:1','TMCStop:2']);
+  assert.deepEqual(sent.map(item=>item.data.barrier),[0,0]);
+  for(const id of ['dc-stop','tmc-stop'])relay.ingest('devices/test/ack',JSON.stringify({id,session,accepted:true,acceptedLines:1,barrier:0}));
+  assert((await first).accepted&&(await second).accepted);
+});

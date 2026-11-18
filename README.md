@@ -1,5 +1,16 @@
 ## ESP32 WiFi-BLE-USB-UART Bridge
 
+Open [Standalone_Consoles/index.html](Standalone_Consoles/index.html) for offline
+HTML consoles for all four ESP32 variants. Join the controller's access point
+and it connects automatically; **Connect BLE** works without Wi-Fi when BLE is
+enabled. The files need no server or installed dependencies. See the
+[offline console guide](Standalone_Consoles/README.md).
+Regenerate them with `python tools/build_standalone_consoles.py` (no firmware build).
+
+DRV8871 DC motors and TMC2209/NEMA14 steppers are supported by the dispenser
+variants. The console includes pin assignment, saved sequencing and concurrent
+priming controls. See [motor setup and wiring](docs/MOTOR_DRIVERS.md).
+
 For guided MQTT/TLS hosting and device setup, double-click
 [Setup Field Access.cmd](Setup%20Field%20Access.cmd). It installs missing server
 dependencies (including Docker/Compose), creates matching credentials/settings
